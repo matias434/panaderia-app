@@ -37,6 +37,18 @@ Se puede configurar la base mediante `DATABASE_URL`, o mediante las variables `D
 
 No subir `.env` ni compartir sus valores. En plataformas de despliegue, configurar las variables en el panel de la plataforma.
 
+## Acceso de proveedores
+
+La pantalla móvil está en `/proveedor.html`. Cada repartidor inicia sesión con su nombre y un PIN individual de 4 a 12 dígitos. Configurar `PROVIDER_PIN_RODRIGO`, `PROVIDER_PIN_ELSA` y `PROVIDER_PIN_MARCOS` en `.env` local o en las variables privadas de la plataforma. Configurar también `PROVIDER_SESSION_SECRET` con un secreto aleatorio de al menos 32 caracteres; se puede generar con:
+
+```sh
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+No usar los textos de ejemplo como PIN o secreto. La sesión dura 12 horas. El proveedor solo ve pedidos de reparto asignados a él cuya fecha de entrega sea hoy o anterior, y únicamente puede confirmar sus propios envíos pendientes.
+
+La autenticación de Secretaría todavía no está implementada: las pantallas y API actuales de pedidos no requieren inicio de sesión. Para una demostración pública, usar solo datos ficticios; antes de cargar datos reales o compartir el sistema en producción, agregar y probar el acceso de Secretaría.
+
 ## Inicialización de la base
 
 `npm run db:init` crea las tablas que falten y agrega las columnas requeridas a una base existente. Ejecutarlo manualmente antes de usar la aplicación con una base nueva o después de cambios de esquema.

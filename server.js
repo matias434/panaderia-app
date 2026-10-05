@@ -1,9 +1,15 @@
 const express = require('express');
 const path = require('path');
+const crypto = require('crypto');
 const db = require('./src/config/db'); // Asegúrate de que esta ruta apunte a tu conexión de base de datos
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+app.set('trust proxy', 1);
+const repartidores = ['Rodrigo', 'Elsa', 'Marcos'];
+const nombreCookieProveedor = 'proveedor_sesion';
+const intentosLoginProveedor = new Map();
+const duracionSesionMs = 12 * 60 * 60 * 1000;
 
 // Middlewares
 app.use(express.json());
@@ -40,7 +46,7 @@ app.get('/api/productos', async (req, res) => {
   }
 });
 
-async function obtenerPedidos({ fecha, soloPendientes = false }) {
+async function obtenerPedidos({ fecha, soloPendientes = false, repartidor, hastaFecha }) {
   const filtros = [];
   const parametros = [];
 
@@ -49,6 +55,15 @@ async function obtenerPedidos({ fecha, soloPendientes = false }) {
     filtros.push(`p.fecha_entrega::DATE = $${parametros.length}::DATE`);
   }
   if (soloPendientes) filtros.push("LOWER(COALESCE(p.estado, 'pendiente')) = 'pendiente'");
+  if (repartidor) {
+    parametros.push(repartidor);
+    filtros.push(`p.repartidor = $${parametros.length}`);
+    filtros.push("p.tipo_entrega = 'Reparto'");
+  }
+  if (hastaFecha) {
+    parametros.push(hastaFecha);
+    filtros.push(`p.fecha_entrega::DATE <= $${parametros.length}::DATE`);
+  }
 
   const query = `
     SELECT 
@@ -72,12 +87,186 @@ async function obtenerPedidos({ fecha, soloPendientes = false }) {
     LEFT JOIN productos pr ON dp.producto_id = pr.id
     ${filtros.length ? `WHERE ${filtros.join(' AND ')}` : ''}
     GROUP BY p.id, p.fecha_entrega, p.tipo_entrega, p.estado, p.repartidor, p.cliente_nombre, c.nombre
-    ORDER BY ${soloPendientes ? 'p.fecha_entrega ASC, p.id ASC' : 'p.id DESC'};
+    ORDER BY ${soloPendientes || hastaFecha ? 'p.fecha_entrega ASC, p.id ASC' : 'p.id DESC'};
   `;
 
   const { rows } = await db.query(query, parametros);
   return rows;
 }
+
+function crearFirmaSesion(contenido, secreto) {
+  return crypto.createHmac('sha256', secreto).update(contenido).digest('base64url');
+}
+
+function leerCookie(req, nombre) {
+  const cookies = (req.headers.cookie || '').split(';');
+  const cookie = cookies.map(valor => valor.trim()).find(valor => valor.startsWith(`${nombre}=`));
+  return cookie ? cookie.slice(nombre.length + 1) : '';
+}
+
+function obtenerRepartidorDeSesion(req) {
+  const secreto = process.env.PROVIDER_SESSION_SECRET;
+  if (!secreto || secreto.length < 32) return null;
+
+  const [contenido, firma, extra] = leerCookie(req, nombreCookieProveedor).split('.');
+  if (!contenido || !firma || extra) return null;
+
+  const firmaEsperada = crearFirmaSesion(contenido, secreto);
+  const firmaBuffer = Buffer.from(firma);
+  const firmaEsperadaBuffer = Buffer.from(firmaEsperada);
+  if (
+    firmaBuffer.length !== firmaEsperadaBuffer.length ||
+    !crypto.timingSafeEqual(firmaBuffer, firmaEsperadaBuffer)
+  ) return null;
+
+  try {
+    const sesion = JSON.parse(Buffer.from(contenido, 'base64url').toString('utf8'));
+    if (
+      !repartidores.includes(sesion.repartidor) ||
+      !Number.isFinite(sesion.expira) ||
+      sesion.expira <= Date.now()
+    ) return null;
+    return sesion.repartidor;
+  } catch {
+    return null;
+  }
+}
+
+function requiereSesionProveedor(req, res, next) {
+  const repartidor = obtenerRepartidorDeSesion(req);
+  if (!repartidor) {
+    return res.status(401).json({ error: 'La sesión venció. Ingresá nuevamente tu PIN.' });
+  }
+  req.repartidorAutenticado = repartidor;
+  next();
+}
+
+function obtenerFechaArgentina() {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+  const valores = Object.fromEntries(partes.map(parte => [parte.type, parte.value]));
+  return `${valores.year}-${valores.month}-${valores.day}`;
+}
+
+function configurarCookieProveedor(res, valor) {
+  const segura = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'railway' || res.req.secure
+    ? '; Secure'
+    : '';
+  res.setHeader(
+    'Set-Cookie',
+    `${nombreCookieProveedor}=${valor}; HttpOnly; SameSite=Strict; Path=/api/proveedor; Max-Age=${duracionSesionMs / 1000}${segura}`
+  );
+}
+
+// Acceso móvil de proveedores
+app.post('/api/proveedor/login', (req, res) => {
+  const { repartidor, pin } = req.body || {};
+  if (!repartidores.includes(repartidor) || typeof pin !== 'string' || !/^\d{4,12}$/.test(pin)) {
+    return res.status(400).json({ error: 'Ingresá tu repartidor y un PIN de 4 a 12 números' });
+  }
+
+  const secretoSesion = process.env.PROVIDER_SESSION_SECRET;
+  const nombreVariablePin = `PROVIDER_PIN_${repartidor.toUpperCase()}`;
+  const pinConfigurado = process.env[nombreVariablePin];
+  if (
+    !secretoSesion ||
+    secretoSesion.length < 32 ||
+    !pinConfigurado ||
+    !/^\d{4,12}$/.test(pinConfigurado)
+  ) {
+    console.error(`Falta configurar ${nombreVariablePin} o PROVIDER_SESSION_SECRET (mínimo 32 caracteres)`);
+    return res.status(503).json({ error: 'El acceso de proveedores aún no está configurado' });
+  }
+
+  const ahora = Date.now();
+  const claveIntento = req.ip || req.socket.remoteAddress || 'desconocido';
+  const intento = intentosLoginProveedor.get(claveIntento);
+  if (intento && intento.bloqueadoHasta > ahora) {
+    return res.status(429).json({ error: 'Demasiados intentos. Esperá 15 minutos e intentá nuevamente.' });
+  }
+  if (intento && ahora - intento.inicio > 15 * 60 * 1000) {
+    intentosLoginProveedor.delete(claveIntento);
+  }
+
+  const pinIngresado = Buffer.from(pin);
+  const pinValido = Buffer.from(pinConfigurado);
+  const coincide = pinIngresado.length === pinValido.length &&
+    crypto.timingSafeEqual(pinIngresado, pinValido);
+  if (!coincide) {
+    const intentosActuales = intentosLoginProveedor.get(claveIntento) || { inicio: ahora, cantidad: 0 };
+    intentosActuales.cantidad += 1;
+    if (intentosActuales.cantidad >= 5) intentosActuales.bloqueadoHasta = ahora + 15 * 60 * 1000;
+    intentosLoginProveedor.set(claveIntento, intentosActuales);
+    return res.status(401).json({ error: 'PIN incorrecto' });
+  }
+
+  intentosLoginProveedor.delete(claveIntento);
+  const contenido = Buffer.from(JSON.stringify({
+    repartidor,
+    expira: ahora + duracionSesionMs
+  })).toString('base64url');
+  configurarCookieProveedor(res, `${contenido}.${crearFirmaSesion(contenido, secretoSesion)}`);
+  res.json({ repartidor });
+});
+
+app.get('/api/proveedor/sesion', requiereSesionProveedor, (req, res) => {
+  res.json({ repartidor: req.repartidorAutenticado });
+});
+
+app.post('/api/proveedor/logout', (req, res) => {
+  res.setHeader(
+    'Set-Cookie',
+    `${nombreCookieProveedor}=; HttpOnly; SameSite=Strict; Path=/api/proveedor; Max-Age=0${process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'railway' || req.secure ? '; Secure' : ''}`
+  );
+  res.status(204).end();
+});
+
+app.get('/api/proveedor/pedidos', requiereSesionProveedor, async (req, res) => {
+  try {
+    const pedidos = await obtenerPedidos({
+      soloPendientes: true,
+      repartidor: req.repartidorAutenticado,
+      hastaFecha: obtenerFechaArgentina()
+    });
+    res.json(pedidos);
+  } catch (error) {
+    console.error('Error al obtener envíos del proveedor:', error);
+    res.status(500).json({ error: 'Error al obtener tus envíos' });
+  }
+});
+
+app.patch('/api/proveedor/pedidos/:id/entregar', requiereSesionProveedor, async (req, res) => {
+  const pedidoId = Number(req.params.id);
+  if (!Number.isInteger(pedidoId) || pedidoId <= 0) {
+    return res.status(400).json({ error: 'El número de pedido no es válido' });
+  }
+
+  try {
+    const result = await db.query(
+      `UPDATE pedidos
+       SET estado = 'Completado'
+       WHERE id = $1
+         AND repartidor = $2
+         AND tipo_entrega = 'Reparto'
+         AND fecha_entrega::DATE <= $3::DATE
+         AND LOWER(COALESCE(estado, 'pendiente')) = 'pendiente'
+       RETURNING id, estado`,
+      [pedidoId, req.repartidorAutenticado, obtenerFechaArgentina()]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'No se encontró un envío pendiente tuyo para hoy o atrasado con ese número' });
+    }
+    res.json({ id: result.rows[0].id, estado: result.rows[0].estado });
+  } catch (error) {
+    console.error('Error al confirmar envío del proveedor:', error);
+    res.status(500).json({ error: 'No se pudo confirmar el envío' });
+  }
+});
 
 // 3. Crear un nuevo pedido con transacción
 app.post('/api/pedidos', async (req, res) => {

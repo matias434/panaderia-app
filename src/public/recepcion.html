@@ -268,10 +268,10 @@
     });
 
     // Consultar pedidos por fecha
-    async function cargarPedidos() {
+    async function cargarPedidos(mostrarCarga = true) {
       const fecha = document.getElementById('filtro-fecha').value;
       const contenedor = document.getElementById('listado-pedidos');
-      contenedor.innerHTML = '<p class="no-print">Cargando pedidos...</p>';
+      if (mostrarCarga) contenedor.innerHTML = '<p class="no-print">Cargando pedidos...</p>';
 
       try {
         const res = await fetch(`/api/pedidos/fecha/${fecha}`);
@@ -371,6 +371,9 @@
     }
 
     init();
+    setInterval(() => {
+      if (document.visibilityState === 'visible') cargarPedidos(false);
+    }, 15000);
 
     function escaparHTML(texto) {
       return String(texto).replace(/[&<>"']/g, caracter => ({
