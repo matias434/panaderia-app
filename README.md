@@ -49,6 +49,17 @@ No usar los textos de ejemplo como PIN o secreto. La sesión dura 12 horas. El p
 
 La autenticación de Secretaría todavía no está implementada: las pantallas y API actuales de pedidos no requieren inicio de sesión. Para una demostración pública, usar solo datos ficticios; antes de cargar datos reales o compartir el sistema en producción, agregar y probar el acceso de Secretaría.
 
+## Prueba en Railway
+
+El proyecto incluye `railway.json`: Railway ejecuta `npm run db:init` antes del despliegue, inicia con `npm start` y verifica `/health`.
+
+1. En Railway, crear un proyecto desde el repositorio privado `matias434/panaderia-app` y agregar un servicio PostgreSQL.
+2. En el servicio de la aplicación, crear la variable `DATABASE_URL` como referencia a la variable `DATABASE_URL` del servicio PostgreSQL (`${{Postgres.DATABASE_URL}}`, usando el nombre real del servicio).
+3. Configurar `PROVIDER_PIN_RODRIGO`, `PROVIDER_PIN_ELSA`, `PROVIDER_PIN_MARCOS` y un `PROVIDER_SESSION_SECRET` aleatorio de al menos 32 caracteres como variables privadas del servicio.
+4. Generar un dominio público desde Networking y abrir `/` para Recepción o `/proveedor.html` para la pantalla del repartidor.
+
+El plan Free publicado por Railway incluye USD 1 de crédito de uso por mes; la prueba inicial publica USD 5 de crédito por 30 días. Verificar límites y consumo en Railway antes de dejar los servicios activos. Como la pantalla/API de Secretaría aún no tiene inicio de sesión, usar exclusivamente pedidos y datos ficticios durante las pruebas públicas.
+
 ## Inicialización de la base
 
 `npm run db:init` crea las tablas que falten y agrega las columnas requeridas a una base existente. Ejecutarlo manualmente antes de usar la aplicación con una base nueva o después de cambios de esquema.

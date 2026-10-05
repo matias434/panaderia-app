@@ -91,6 +91,44 @@
       width: 30%;
     }
 
+    @media (max-width: 600px) {
+      body {
+        margin: 10px;
+      }
+      .no-print {
+        padding: 12px;
+      }
+      .no-print > h1 {
+        font-size: 1.4rem;
+      }
+      .no-print > label,
+      .no-print > input,
+      .no-print > select,
+      .no-print > button,
+      .no-print > a {
+        display: block;
+        width: 100%;
+        margin: 10px 0;
+      }
+      .no-print > input,
+      .no-print > select {
+        min-height: 44px;
+        padding: 8px;
+      }
+      .btn {
+        min-height: 46px;
+      }
+      .comanda-card {
+        max-width: 100%;
+        padding: 12px;
+      }
+      .comanda-items th,
+      .comanda-items td {
+        padding: 8px 4px;
+        overflow-wrap: anywhere;
+      }
+    }
+
     /* Reglas exclusivas para Impresión */
     @media print {
       .no-print {

@@ -22,6 +22,10 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'src', 'public', 'recepcion.html'));
 });
 
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 // ------------------ RUTAS DE LA API ------------------
 
 // 1. Obtener todos los clientes
@@ -379,6 +383,33 @@ app.get('/api/pedidos/fecha/:fecha', async (req, res) => {
   } catch (error) {
     console.error('Error al obtener pedidos por fecha:', error);
     res.status(500).json({ error: 'Error al obtener pedidos' });
+  }
+});
+
+// Consolidar la producción por producto y fecha de entrega
+app.get('/api/pedidos/cocina', async (req, res) => {
+  const { fecha } = req.query;
+  if (typeof fecha !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+    return res.status(400).json({ error: 'Seleccioná una fecha válida' });
+  }
+
+  try {
+    const result = await db.query(
+      `SELECT
+         COALESCE(dp.producto_nombre, pr.nombre, 'Producto sin nombre') AS producto,
+         SUM(dp.cantidad) AS cantidad_total
+       FROM pedidos p
+       JOIN detalle_pedidos dp ON dp.pedido_id = p.id
+       LEFT JOIN productos pr ON pr.id = dp.producto_id
+       WHERE p.fecha_entrega::DATE = $1::DATE
+       GROUP BY COALESCE(dp.producto_nombre, pr.nombre, 'Producto sin nombre')
+       ORDER BY producto ASC`,
+      [fecha]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener consolidado de cocina:', error);
+    res.status(500).json({ error: 'Error al generar la lista de producción' });
   }
 });
 

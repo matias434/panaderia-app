@@ -5,12 +5,45 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cocina - Hoja de Producción</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; margin: 20px; color: #333; }
     .no-print { background: #f0f0f0; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
     table { width: 100%; border-collapse: collapse; margin-top: 10px; }
     th, td { border: 1px solid #333; padding: 10px; text-align: left; }
     th { background-color: #ddd; }
     h1 { margin-bottom: 5px; }
+    .acciones {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+    .acciones input,
+    .acciones button {
+      min-height: 44px;
+      padding: 8px 12px;
+      font: inherit;
+    }
+    .acciones button {
+      border: 0;
+      border-radius: 5px;
+      background: #28a745;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .tabla-contenedor { overflow-x: auto; }
+
+    @media (max-width: 600px) {
+      body { margin: 10px; }
+      .no-print { padding: 12px; }
+      .acciones { flex-direction: column; align-items: stretch; }
+      .acciones > * { width: 100%; min-width: 0; }
+      h1 { font-size: 1.45rem; }
+      th, td { padding: 8px; }
+      th:last-child,
+      td:last-child { min-width: 145px; }
+    }
 
     /* Estilos exclusivos para la impresión en papel */
     @media print {
@@ -23,28 +56,30 @@
 </head>
 <body>
 
-  <div class="no-print">
+  <div class="no-print acciones">
     <label for="fechaConsulta">Seleccionar Fecha de Entrega:</label>
     <input type="date" id="fechaConsulta">
     <button onclick="cargarConsolidado()">🔍 Ver Producción</button>
-    <button onclick="window.print()" style="background: #28a745; color: white; border: none; padding: 8px 15px; font-weight: bold; margin-left: 10px; cursor: pointer;">🖨️ Imprimir para Pizarra</button>
+    <button onclick="window.print()">🖨️ Imprimir para Pizarra</button>
   </div>
 
   <div id="hojaImpresion">
     <h1 id="tituloHoja">🥖 TOTAL PRODUCCIÓN REPARTOS</h1>
     <h3 id="subtituloFecha">Fecha: --/--/----</h3>
 
-    <table>
-      <thead>
-        <tr>
-          <th>Producto</th>
-          <th>Cantidad Total Requerida</th>
-        </tr>
-      </thead>
-      <tbody id="tablaCuerpo">
-        <tr><td colspan="2">Seleccione una fecha para ver el pedido acumulado.</td></tr>
-      </tbody>
-    </table>
+    <div class="tabla-contenedor">
+      <table>
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th>Cantidad Total Requerida</th>
+          </tr>
+        </thead>
+        <tbody id="tablaCuerpo">
+          <tr><td colspan="2">Seleccione una fecha para ver el pedido acumulado.</td></tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 
   <script>
@@ -74,8 +109,8 @@
         datos.forEach(item => {
           const tr = document.createElement('tr');
           tr.innerHTML = `
-            <td><strong>${item.producto}</strong></td>
-            <td><strong>${item.cantidad_total}</strong></td>
+            <td><strong>${escaparHTML(item.producto)}</strong></td>
+            <td><strong>${escaparHTML(item.cantidad_total)}</strong></td>
           `;
           tbody.appendChild(tr);
         });
@@ -83,6 +118,16 @@
         console.error(err);
         alert('Error al cargar la lista de producción');
       }
+    }
+
+    function escaparHTML(texto) {
+      return String(texto).replace(/[&<>"']/g, caracter => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      })[caracter]);
     }
   </script>
 </body>
