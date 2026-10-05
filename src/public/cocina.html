@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cocina - Hoja de Producción</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .no-print { background: #f0f0f0; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #333; padding: 10px; text-align: left; }
+    th { background-color: #ddd; }
+    h1 { margin-bottom: 5px; }
+
+    /* Estilos exclusivos para la impresión en papel */
+    @media print {
+      .no-print { display: none; }
+      body { margin: 0; }
+      table { width: 100%; font-size: 16pt; }
+      th, td { padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="no-print">
+    <label for="fechaConsulta">Seleccionar Fecha de Entrega:</label>
+    <input type="date" id="fechaConsulta">
+    <button onclick="cargarConsolidado()">🔍 Ver Producción</button>
+    <button onclick="window.print()" style="background: #28a745; color: white; border: none; padding: 8px 15px; font-weight: bold; margin-left: 10px; cursor: pointer;">🖨️ Imprimir para Pizarra</button>
+  </div>
+
+  <div id="hojaImpresion">
+    <h1 id="tituloHoja">🥖 TOTAL PRODUCCIÓN REPARTOS</h1>
+    <h3 id="subtituloFecha">Fecha: --/--/----</h3>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>Cantidad Total Requerida</th>
+        </tr>
+      </thead>
+      <tbody id="tablaCuerpo">
+        <tr><td colspan="2">Seleccione una fecha para ver el pedido acumulado.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    // Por defecto setear la fecha de mañana
+    const hoy = new Date();
+    hoy.setDate(hoy.getDate() + 1);
+    document.getElementById('fechaConsulta').value = hoy.toISOString().split('T')[0];
+
+    async function cargarConsolidado() {
+      const fecha = document.getElementById('fechaConsulta').value;
+      if (!fecha) return alert('Por favor seleccione una fecha');
+
+      document.getElementById('subtituloFecha').innerText = `Fecha de Entrega: ${fecha}`;
+
+      try {
+        const res = await fetch(`/api/pedidos/cocina?fecha=${fecha}`);
+        const datos = await res.json();
+
+        const tbody = document.getElementById('tablaCuerpo');
+        tbody.innerHTML = '';
+
+        if (datos.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="2">No hay pedidos registrados para esta fecha.</td></tr>';
+          return;
+        }
+
+        datos.forEach(item => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td><strong>${item.producto}</strong></td>
+            <td><strong>${item.cantidad_total}</strong></td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (err) {
+        console.error(err);
+        alert('Error al cargar la lista de producción');
+      }
+    }
+  </script>
+</body>
+</html>

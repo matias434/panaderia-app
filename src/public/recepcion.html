@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recepción - Panadería</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background-color: #f8f9fa;
+      color: #333;
+    }
+    .card {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      margin-bottom: 25px;
+    }
+    .btn {
+      padding: 10px 18px;
+      font-size: 16px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      background-color: #28a745;
+      color: white;
+      font-weight: bold;
+    }
+    .btn-blue { background-color: #007bff; }
+    .btn-secondary { background-color: #6c757d; }
+
+    .comanda-ticket {
+      border: 2px dashed #000;
+      padding: 15px;
+      margin-top: 15px;
+      background: #fff;
+      max-width: 380px;
+      border-radius: 5px;
+    }
+    .pedido-pendiente {
+      border-color: #d99000;
+      background: #fff4d6;
+    }
+    .pedido-completado {
+      border-color: #31814a;
+      background: #e8f5eb;
+    }
+    .estado-pedido {
+      display: inline-block;
+      padding: 4px 9px;
+      border-radius: 12px;
+      font-weight: bold;
+    }
+    .estado-pedido.pendiente {
+      background: #ffe0a3;
+      color: #704500;
+    }
+    .estado-pedido.completado {
+      background: #ccebd3;
+      color: #205c30;
+    }
+    .pedidos-pendientes-panel {
+      padding: 10px;
+    }
+    .boton-pendientes {
+      width: 100%;
+      min-height: 48px;
+      border: 0;
+      border-radius: 8px;
+      padding: 12px 16px;
+      background: #a84400;
+      color: #fff;
+      font-size: 17px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .boton-pendientes.tiene-pendientes {
+      animation: aviso-pendientes 1.4s ease-in-out infinite;
+    }
+    @keyframes aviso-pendientes {
+      50% { background: #e56b00; box-shadow: 0 0 0 5px #e56b0033; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .boton-pendientes.tiene-pendientes { animation: none; }
+    }
+    @media (max-width: 600px) {
+      body { margin: 10px; }
+      .card { padding: 14px; margin-bottom: 14px; }
+      .item-pedido { flex-wrap: wrap; }
+      .item-pedido .nombre-producto { min-width: 55%; }
+      .item-pedido .cantidad-producto { min-width: 25%; }
+      .item-pedido .quitar-producto { flex: 1 0 100%; }
+      .comanda-ticket { max-width: 100%; }
+      #filtro-fecha { max-width: 100%; }
+    }
+
+    @media print {
+      .no-print { display: none !important; }
+      body { background: white; margin: 0; }
+      .comanda-ticket { border: 1px solid #000; width: 100%; max-width: 100%; margin-bottom: 20px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- SECCIÓN 1: CARGA DE PEDIDOS -->
+  <div class="card no-print">
+    <h2>📝 Nuevo Pedido</h2>
+    <form id="form-pedido">
+      <label for="tipo_entrega">Tipo de entrega:</label><br>
+      <select id="tipo_entrega" required style="width: 100%; padding: 8px; margin-bottom: 10px;">
+        <option value="Reparto">Reparto a revendedor</option>
+        <option value="Retiro en local">Retiro en el local</option>
+      </select><br>
+
+      <div id="datos-reparto">
+        <label for="cliente_id">Revendedor:</label><br>
+        <select id="cliente_id" required style="width: 100%; padding: 8px; margin-bottom: 10px;"></select><br>
+
+        <label for="repartidor">Repartidor:</label><br>
+        <select id="repartidor" required style="width: 100%; padding: 8px; margin-bottom: 10px;">
+          <option value="">-- Seleccionar Repartidor --</option>
+          <option value="Rodrigo">Rodrigo</option>
+          <option value="Elsa">Elsa</option>
+          <option value="Marcos">Marcos</option>
+        </select><br>
+      </div>
+
+      <div id="datos-retiro" hidden>
+        <label for="cliente_nombre">Nombre de la persona que retira:</label><br>
+        <input id="cliente_nombre" type="text" maxlength="100" placeholder="Nombre y apellido" style="width: 100%; box-sizing: border-box; padding: 8px; margin-bottom: 10px;"><br>
+      </div>
+
+      <label>Fecha de Entrega:</label><br>
+      <input type="date" id="fecha_entrega" required style="width: 100%; padding: 8px; margin-bottom: 10px;"><br>
+
+      <label>Productos del pedido:</label>
+      <div id="items-pedido"></div>
+      <button type="button" id="agregar-producto" class="btn btn-blue" style="margin: 8px 0 16px;">+ Agregar producto</button><br>
+
+      <button type="submit" class="btn">Guardar Pedido</button>
+    </form>
+  </div>
+
+  <section class="card no-print pedidos-pendientes-panel" aria-label="Pedidos pendientes">
+    <button
+      id="boton-pendientes"
+      class="boton-pendientes"
+      type="button"
+      aria-expanded="false"
+      aria-controls="listado-pendientes"
+      onclick="alternarPedidosPendientes()">
+      Ver pedidos pendientes (<span id="cantidad-pendientes">…</span>)
+    </button>
+    <div id="listado-pendientes" hidden></div>
+  </section>
+
+  <!-- SECCIÓN 2: BOTÓN PARA VER Y ENVIAR A COCINA -->
+  <div class="card no-print">
+    <h2>📄 Pedidos Registrados</h2>
+    <label>Filtrar por Fecha:</label>
+    <input type="date" id="filtro-fecha" style="padding: 8px;">
+    <button class="btn btn-blue" onclick="cargarPedidos()">Ver Pedidos</button>
+    <button class="btn btn-secondary" onclick="window.print()">🖨️ Imprimir Todo para Cocina</button>
+  </div>
+
+  <!-- SECCIÓN 3: LISTADO Y COMANDAS PARA IMPRIMIR -->
+  <div id="listado-pedidos"></div>
+
+  <script>
+    // Fecha actual por defecto
+    const hoy = new Date().toISOString().split('T')[0];
+    document.getElementById('fecha_entrega').value = hoy;
+    document.getElementById('filtro-fecha').value = hoy;
+    function agregarFilaProducto() {
+      const fila = document.createElement('div');
+      fila.className = 'item-pedido';
+      fila.style.cssText = 'display:flex; gap:8px; margin:8px 0;';
+      fila.innerHTML = `
+        <input class="nombre-producto" type="text" placeholder="Escribir producto" maxlength="150" required style="flex:2; padding:8px;">
+        <input class="cantidad-producto" type="number" placeholder="Cant." min="0.1" step="any" required style="flex:1; padding:8px;">
+        <button type="button" class="btn btn-secondary quitar-producto" aria-label="Quitar producto">Quitar</button>
+      `;
+      fila.querySelector('.quitar-producto').addEventListener('click', () => {
+        if (document.querySelectorAll('.item-pedido').length > 1) fila.remove();
+      });
+      document.getElementById('items-pedido').appendChild(fila);
+    }
+
+    document.getElementById('agregar-producto').addEventListener('click', agregarFilaProducto);
+
+    function actualizarTipoEntrega() {
+      const esRetiro = document.getElementById('tipo_entrega').value === 'Retiro en local';
+      document.getElementById('datos-reparto').hidden = esRetiro;
+      document.getElementById('datos-retiro').hidden = !esRetiro;
+      document.getElementById('cliente_id').required = !esRetiro;
+      document.getElementById('repartidor').required = !esRetiro;
+      document.getElementById('cliente_nombre').required = esRetiro;
+    }
+
+    document.getElementById('tipo_entrega').addEventListener('change', actualizarTipoEntrega);
+
+    // Inicializar desplegables
+    async function init() {
+      try {
+        const resClientes = await fetch('/api/clientes');
+        const clientes = await resClientes.json();
+        const selectC = document.getElementById('cliente_id');
+        selectC.innerHTML = '<option value="">-- Seleccionar Cliente --</option>' + 
+          clientes.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
+
+        agregarFilaProducto();
+
+        cargarPedidos();
+      } catch (err) {
+        console.error('Error al inicializar datos:', err);
+      }
+    }
+
+    // Guardar pedido y LIMPIAR formulario
+    document.getElementById('form-pedido').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const payload = {
+        tipo_entrega: document.getElementById('tipo_entrega').value,
+        cliente_id: document.getElementById('cliente_id').value || null,
+        cliente_nombre: document.getElementById('cliente_nombre').value.trim(),
+        repartidor: document.getElementById('repartidor').value || null,
+        fecha_entrega: document.getElementById('fecha_entrega').value,
+        items: Array.from(document.querySelectorAll('.item-pedido')).map(fila => ({
+          producto_nombre: fila.querySelector('.nombre-producto').value.trim(),
+          cantidad: fila.querySelector('.cantidad-producto').value
+        }))
+      };
+
+      try {
+        const response = await fetch('/api/pedidos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+          alert('✅ ¡Pedido guardado exitosamente!');
+          
+          // Limpiar casillas de producto y cantidad
+          document.getElementById('items-pedido').innerHTML = '';
+          agregarFilaProducto();
+          document.getElementById('cliente_id').selectedIndex = 0;
+          document.getElementById('repartidor').selectedIndex = 0;
+          document.getElementById('cliente_nombre').value = '';
+          document.getElementById('tipo_entrega').value = 'Reparto';
+          actualizarTipoEntrega();
+          document.getElementById('fecha_entrega').value = hoy;
+
+          // Actualizar la lista de abajo
+          cargarPedidos();
+        } else {
+          const resultado = await response.json();
+          alert(`❌ No se pudo guardar el pedido: ${resultado.error || 'Error desconocido'}`);
+        }
+      } catch (error) {
+        console.error('Error guardando pedido:', error);
+        alert('❌ No se pudo guardar el pedido. Revisá la conexión e intentá nuevamente.');
+      }
+    });
+
+    // Consultar pedidos por fecha
+    async function cargarPedidos() {
+      const fecha = document.getElementById('filtro-fecha').value;
+      const contenedor = document.getElementById('listado-pedidos');
+      contenedor.innerHTML = '<p class="no-print">Cargando pedidos...</p>';
+
+      try {
+        const res = await fetch(`/api/pedidos/fecha/${fecha}`);
+        if (!res.ok) throw new Error('No se pudieron cargar los pedidos de esa fecha');
+        const pedidos = await res.json();
+
+        contenedor.innerHTML = '';
+
+        if (!pedidos || pedidos.length === 0) {
+          contenedor.innerHTML = '<p class="no-print">No hay pedidos registrados para esta fecha.</p>';
+        } else {
+          pedidos.forEach(p => contenedor.appendChild(crearTarjetaPedido(p)));
+        }
+        await cargarPendientes();
+      } catch (error) {
+        console.error('Error cargando pedidos:', error);
+        contenedor.innerHTML = '<p class="no-print">❌ Error al cargar los pedidos de esa fecha.</p>';
+        await cargarPendientes();
+      }
+    }
+
+    async function cargarPendientes() {
+      const contenedor = document.getElementById('listado-pendientes');
+      const cantidad = document.getElementById('cantidad-pendientes');
+      const boton = document.getElementById('boton-pendientes');
+      try {
+        const response = await fetch('/api/pedidos/pendientes');
+        if (!response.ok) throw new Error('No se pudieron consultar los pedidos pendientes');
+        const pedidos = await response.json();
+        cantidad.textContent = pedidos.length;
+        boton.classList.toggle('tiene-pendientes', pedidos.length > 0 && contenedor.hidden);
+        contenedor.innerHTML = '';
+
+        if (contenedor.hidden) return;
+
+        if (pedidos.length === 0) {
+          contenedor.innerHTML = '<p>No hay pedidos pendientes.</p>';
+          return;
+        }
+        pedidos.forEach(p => contenedor.appendChild(crearTarjetaPedido(p, true)));
+      } catch (error) {
+        console.error('Error cargando pedidos pendientes:', error);
+        cantidad.textContent = '—';
+        if (!contenedor.hidden) contenedor.innerHTML = '<p>❌ Error al cargar los pedidos pendientes.</p>';
+      }
+    }
+
+    async function alternarPedidosPendientes() {
+      const contenedor = document.getElementById('listado-pendientes');
+      const boton = document.getElementById('boton-pendientes');
+      contenedor.hidden = !contenedor.hidden;
+      boton.setAttribute('aria-expanded', String(!contenedor.hidden));
+      boton.classList.remove('tiene-pendientes');
+      boton.innerHTML = `${contenedor.hidden ? 'Ver' : 'Ocultar'} pedidos pendientes (<span id="cantidad-pendientes">${document.getElementById('cantidad-pendientes').textContent}</span>)`;
+      await cargarPendientes();
+    }
+
+    function crearTarjetaPedido(pedido, permitirCompletar = false) {
+      const div = document.createElement('div');
+      const completado = String(pedido.estado || 'Pendiente').toLowerCase() === 'completado';
+      div.className = `comanda-ticket ${completado ? 'pedido-completado' : 'pedido-pendiente'}`;
+      const fecha = escaparHTML(pedido.fecha_entrega);
+      const tipoEntrega = pedido.tipo_entrega === 'Retiro en local'
+        ? 'Retiro en el local'
+        : `Reparto — ${pedido.repartidor || 'Sin asignar'}`;
+      div.innerHTML = `
+        <h3>Pedido #${pedido.id} - ${escaparHTML(pedido.cliente_nombre)}</h3>
+        <p><strong>Fecha de Entrega:</strong> ${fecha}</p>
+        <p><strong>Entrega:</strong> ${escaparHTML(tipoEntrega)}</p>
+        <p><strong>Estado:</strong> <span class="estado-pedido ${completado ? 'completado' : 'pendiente'}">${completado ? 'Completado' : 'Pendiente'}</span></p>
+        <ul>
+          ${pedido.items && pedido.items.length > 0
+            ? pedido.items.map(item => `<li><strong>${escaparHTML(item.cantidad)}</strong> x${escaparHTML(item.producto_nombre)}</li>`).join('')
+            : '<li>Sin detalles</li>'
+          }
+        </ul>
+        ${permitirCompletar
+          ? `<button class="btn" type="button" onclick="completarPedido(${Number(pedido.id)})">Marcar como completado</button>`
+          : '<button class="btn btn-secondary no-print" onclick="window.print()">🖨️ Imprimir Ticket</button>'
+        }
+      `;
+      return div;
+    }
+
+    async function completarPedido(id) {
+      if (!window.confirm(`¿Marcar el pedido #${id} como completado?`)) return;
+
+      try {
+        const response = await fetch(`/api/pedidos/${id}/completar`, { method: 'PATCH' });
+        const resultado = await response.json();
+        if (!response.ok) throw new Error(resultado.error || 'No se pudo completar el pedido');
+        await cargarPedidos();
+      } catch (error) {
+        console.error('Error al completar pedido:', error);
+        alert(`❌ ${error.message}`);
+      }
+    }
+
+    init();
+
+    function escaparHTML(texto) {
+      return String(texto).replace(/[&<>"']/g, caracter => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      })[caracter]);
+    }
+  </script>
+</body>
+</html>

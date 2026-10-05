@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gestión e Impresión de Pedidos</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background-color: #f4f4f9;
+      color: #333;
+    }
+    .no-print {
+      margin-bottom: 20px;
+      background: #fff;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .btn {
+      padding: 10px 15px;
+      font-size: 16px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      background-color: #28a745;
+      color: white;
+      margin-right: 10px;
+    }
+    .btn-secondary {
+      background-color: #007bff;
+    }
+
+    /* Estilos de la Comanda (Formato Ticket / Impresión) */
+    .comanda-card {
+      background: white;
+      border: 2px dashed #333;
+      padding: 15px;
+      margin-bottom: 20px;
+      width: 100%;
+      max-width: 400px;
+      box-sizing: border-box;
+      page-break-inside: avoid;
+    }
+    .comanda-card.pedido-pendiente {
+      background: #fff4d6;
+      border-color: #d99000;
+    }
+    .comanda-card.pedido-completado {
+      background: #e8f5eb;
+      border-color: #31814a;
+    }
+    .estado-pedido {
+      display: inline-block;
+      padding: 4px 9px;
+      border-radius: 12px;
+      font-weight: bold;
+    }
+    .estado-pedido.pendiente {
+      background: #ffe0a3;
+      color: #704500;
+    }
+    .estado-pedido.completado {
+      background: #ccebd3;
+      color: #205c30;
+    }
+    .comanda-header {
+      border-bottom: 2px solid #000;
+      padding-bottom: 8px;
+      margin-bottom: 10px;
+    }
+    .comanda-header h2 {
+      margin: 0;
+      font-size: 20px;
+      text-transform: uppercase;
+    }
+    .comanda-items {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    .comanda-items th, .comanda-items td {
+      text-align: left;
+      padding: 6px 0;
+      font-size: 16px;
+    }
+    .comanda-items td.cantidad {
+      font-weight: bold;
+      font-size: 18px;
+      width: 30%;
+    }
+
+    /* Reglas exclusivas para Impresión */
+    @media print {
+      .no-print {
+        display: none !important;
+      }
+      body {
+        background: white;
+        margin: 0;
+        padding: 0;
+      }
+      .comanda-card {
+        border: 1px solid #000;
+        max-width: 100%;
+        margin-bottom: 30px;
+      }
+      .grupo-repartidor:not(:first-child) {
+        page-break-before: always;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Panel de Control (Oculto al imprimir) -->
+  <div class="no-print">
+    <h1>📄 Pedidos para Cocina</h1>
+    <label for="fecha">Fecha de Entrega: </label>
+    <input type="date" id="fecha">
+    <label for="filtro-repartidor" style="margin-left: 12px;">Repartidor: </label>
+    <select id="filtro-repartidor" onchange="cargarPedidos()">
+      <option value="">Todos</option>
+      <option value="Rodrigo">Rodrigo</option>
+      <option value="Elsa">Elsa</option>
+      <option value="Marcos">Marcos</option>
+      <option value="Retiro en local">Retiro en el local</option>
+    </select>
+    <button class="btn btn-secondary" onclick="cargarPedidos()">Buscar Pedidos</button>
+    <button class="btn" onclick="window.print()">🖨️ Imprimir Hoja para Cocina</button>
+    <a href="/recepcion.html" style="margin-left: 15px;">← Volver a Recepción</a>
+  </div>
+
+  <!-- Contenedor donde se generan las comandas -->
+  <div id="contenedor-comandas"></div>
+
+  <script>
+    // Configurar fecha por defecto a hoy
+    document.getElementById('fecha').value = new Date().toISOString().split('T')[0];
+
+    async function cargarPedidos() {
+      const fecha = document.getElementById('fecha').value;
+      const res = await fetch(`/api/pedidos/fecha/${fecha}`);
+      const pedidos = await res.json();
+
+      const contenedor = document.getElementById('contenedor-comandas');
+      contenedor.innerHTML = '';
+
+      if (pedidos.length === 0) {
+        contenedor.innerHTML = '<p class="no-print">No hay pedidos registrados para esta fecha.</p>';
+        return;
+      }
+
+      const repartidorElegido = document.getElementById('filtro-repartidor').value;
+      const pedidosFiltrados = repartidorElegido
+        ? pedidos.filter(p => repartidorElegido === 'Retiro en local'
+          ? p.tipo_entrega === 'Retiro en local'
+          : p.repartidor === repartidorElegido)
+        : pedidos;
+      const grupos = pedidosFiltrados.reduce((resultado, pedido) => {
+        const grupo = pedido.tipo_entrega === 'Retiro en local'
+          ? 'Retiro en local'
+          : pedido.repartidor || 'Sin asignar';
+        (resultado[grupo] ||= []).push(pedido);
+        return resultado;
+      }, {});
+
+      if (Object.keys(grupos).length === 0) {
+        contenedor.innerHTML = '<p class="no-print">No hay pedidos para ese repartidor en esta fecha.</p>';
+        return;
+      }
+
+      Object.entries(grupos).forEach(([grupoNombre, pedidosDelGrupo]) => {
+        const grupo = document.createElement('section');
+        grupo.className = 'grupo-repartidor';
+        const encabezado = grupoNombre === 'Retiro en local'
+          ? 'Pedidos para cocina — Retiro en el local'
+          : `Pedidos para cocina — Repartidor: ${escaparHTML(grupoNombre)}`;
+        grupo.innerHTML = `<h1>${encabezado}</h1>`;
+
+        pedidosDelGrupo.forEach(p => {
+          const div = document.createElement('div');
+          const completado = String(p.estado || 'Pendiente').toLowerCase() === 'completado';
+          div.className = `comanda-card ${completado ? 'pedido-completado' : 'pedido-pendiente'}`;
+          const tipoEntrega = p.tipo_entrega === 'Retiro en local'
+            ? 'Retiro en el local'
+            : `Reparto — ${p.repartidor || 'Sin asignar'}`;
+          div.innerHTML = `
+            <div class="comanda-header">
+              <h2>Pedido #${p.id}</h2>
+              <p><strong>Cliente:</strong> ${escaparHTML(p.cliente_nombre)}</p>
+              <p><strong>Entrega:</strong> ${escaparHTML(tipoEntrega)} (${escaparHTML(p.fecha_entrega)})</p>
+              <p><strong>Estado:</strong> <span class="estado-pedido ${completado ? 'completado' : 'pendiente'}">${completado ? 'Completado' : 'Pendiente'}</span></p>
+            </div>
+            <table class="comanda-items">
+              <thead>
+                <tr>
+                  <th>Cant.</th>
+                  <th>Producto</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${p.items.map(item => `
+                  <tr>
+                    <td class="cantidad">${item.cantidad}</td>
+                    <td>${escaparHTML(item.producto_nombre)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            <button class="btn btn-secondary no-print" style="margin-top:15px;" onclick="imprimirComandaIndividual(this)">🖨️ Imprimir esta comanda</button>
+          `;
+          grupo.appendChild(div);
+        });
+        contenedor.appendChild(grupo);
+      });
+    }
+
+    function imprimirComandaIndividual(btn) {
+      const card = btn.closest('.comanda-card');
+      const contenidoOriginal = document.body.innerHTML;
+      document.body.innerHTML = card.outerHTML;
+      window.print();
+      document.body.innerHTML = contenidoOriginal;
+      location.reload();
+    }
+
+    function escaparHTML(texto) {
+      return String(texto).replace(/[&<>"']/g, caracter => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      })[caracter]);
+    }
+
+    // Cargar al entrar
+    cargarPedidos();
+  </script>
+</body>
+</html>
