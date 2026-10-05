@@ -23,7 +23,7 @@ Aplicación web para cargar pedidos de reparto a revendedores y pedidos particul
    npm run db:init
    ```
 
-4. Iniciar la aplicación (inicializa o actualiza el esquema automáticamente antes del servidor):
+4. Iniciar la aplicación (inicializa o actualiza el esquema automáticamente antes de aceptar consultas):
 
    ```sh
    npm start
@@ -51,7 +51,7 @@ La autenticación de Secretaría todavía no está implementada: las pantallas y
 
 ## Prueba en Railway
 
-El proyecto incluye `railway.json`: Railway ejecuta `npm run db:init` antes del despliegue, inicia con `npm start` y verifica `/health`. Además, el comando `start` vuelve a comprobar el esquema antes de iniciar el servidor, para cubrir despliegues donde no se ejecute el comando previo.
+El proyecto incluye `railway.json`: Railway inicia con `npm start` y verifica `/health`. El propio servidor crea o actualiza las tablas y comprueba la base seleccionada antes de empezar a aceptar consultas; si la inicialización falla, no arranca.
 
 1. En Railway, crear un proyecto desde el repositorio privado `matias434/panaderia-app` y agregar un servicio PostgreSQL.
 2. En el servicio de la aplicación, crear la variable `DATABASE_URL` como referencia a la variable `DATABASE_URL` del servicio PostgreSQL (`${{Postgres.DATABASE_URL}}`, usando el nombre real del servicio).
@@ -62,4 +62,4 @@ El plan Free publicado por Railway incluye USD 1 de crédito de uso por mes; la 
 
 ## Inicialización de la base
 
-`npm run db:init` crea las tablas que falten y agrega las columnas requeridas a una base existente; también se ejecuta automáticamente al iniciar la aplicación. Si la tabla de clientes está vacía, carga clientes y productos de ejemplo. Los pedidos y clientes existentes en otra base de datos no se copian automáticamente.
+`npm run db:init` crea las tablas que falten y agrega las columnas requeridas a una base existente; también se ejecuta automáticamente al iniciar la aplicación. Si la tabla de clientes está vacía, carga clientes y productos de ejemplo. Los pedidos y clientes existentes en otra base de datos no se copian automáticamente. En los logs de inicio deben aparecer `Tablas creadas exitosamente` y `Base preparada`; si no aparecen, revisar la configuración del comando de inicio y la referencia `DATABASE_URL` del servicio.

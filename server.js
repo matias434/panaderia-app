@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 const db = require('./src/config/db'); // Asegúrate de que esta ruta apunte a tu conexión de base de datos
+const initSchema = require('./src/config/initDb');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -444,7 +445,20 @@ app.patch('/api/pedidos/:id/completar', async (req, res) => {
   }
 });
 
-// Arrancar el servidor
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
-});
+// Crear/verificar el esquema antes de aceptar consultas.
+async function startServer() {
+  try {
+    await initSchema();
+    const { rows } = await db.query('SELECT current_database() AS database, current_schema() AS schema');
+    console.log(`✅ Base preparada: ${rows[0].database}, esquema ${rows[0].schema}`);
+    app.listen(PORT, () => {
+      console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
+    });
+  } catch (error) {
+    console.error('❌ No se pudo preparar PostgreSQL; el servidor no se inició:', error);
+    await db.pool.end();
+    process.exitCode = 1;
+  }
+}
+
+startServer();
