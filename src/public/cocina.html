@@ -110,7 +110,7 @@
           const tr = document.createElement('tr');
           tr.innerHTML = `
             <td><strong>${escaparHTML(item.producto)}</strong></td>
-            <td><strong>${escaparHTML(item.cantidad_total)}</strong></td>
+            <td><strong>${escaparHTML(item.cantidad_total)} ${escaparHTML(item.unidad || '')}</strong></td>
           `;
           tbody.appendChild(tr);
         });

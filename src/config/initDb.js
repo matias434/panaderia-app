@@ -39,13 +39,15 @@ const initSchema = async () => {
       pedido_id INT REFERENCES pedidos(id) ON DELETE CASCADE,
       producto_id INT REFERENCES productos(id) ON DELETE RESTRICT,
       producto_nombre VARCHAR(150),
-      cantidad NUMERIC(8,2) NOT NULL
+      cantidad NUMERIC(8,2) NOT NULL,
+      unidad VARCHAR(30)
     );
   `);
 
   await db.query('ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS repartidor VARCHAR(20)');
   await db.query('ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS cliente_nombre VARCHAR(100)');
   await db.query('ALTER TABLE detalle_pedidos ADD COLUMN IF NOT EXISTS producto_nombre VARCHAR(150)');
+  await db.query('ALTER TABLE detalle_pedidos ADD COLUMN IF NOT EXISTS unidad VARCHAR(30)');
 
   console.log('✅ Tablas creadas exitosamente.');
 

@@ -241,7 +241,7 @@
               <tbody>
                 ${p.items.map(item => `
                   <tr>
-                    <td class="cantidad">${item.cantidad}</td>
+                    <td class="cantidad">${escaparHTML(item.cantidad)} ${escaparHTML(item.unidad || '')}</td>
                     <td>${escaparHTML(item.producto_nombre)}</td>
                   </tr>
                 `).join('')}

@@ -82,7 +82,8 @@ async function obtenerPedidos({ fecha, soloPendientes = false, repartidor, hasta
         JSON_AGG(
           JSON_BUILD_OBJECT(
             'producto_nombre', COALESCE(dp.producto_nombre, pr.nombre, 'Producto sin nombre'),
-            'cantidad', dp.cantidad
+            'cantidad', dp.cantidad,
+            'unidad', COALESCE(dp.unidad, '')
           )
         ) FILTER (WHERE dp.id IS NOT NULL), '[]'
       ) AS items
@@ -311,11 +312,14 @@ app.post('/api/pedidos', async (req, res) => {
         typeof item.producto_nombre !== 'string' ||
         !item.producto_nombre.trim() ||
         item.producto_nombre.trim().length > 150 ||
+        typeof item.unidad !== 'string' ||
+        !item.unidad.trim() ||
+        item.unidad.trim().length > 30 ||
         !Number.isFinite(Number(item.cantidad)) ||
         Number(item.cantidad) <= 0
       )
     ) {
-      return res.status(400).json({ error: 'Escribí cada producto y agregá una cantidad válida' });
+      return res.status(400).json({ error: 'Completá cantidad, unidad y producto en cada renglón' });
     }
 
     client = await db.pool.connect();
@@ -338,9 +342,9 @@ app.post('/api/pedidos', async (req, res) => {
     // Insertar ítems del detalle
     for (const item of items) {
       await client.query(
-        `INSERT INTO detalle_pedidos (pedido_id, producto_nombre, cantidad) 
-         VALUES ($1, $2, $3)`,
-        [pedidoId, item.producto_nombre.trim(), item.cantidad]
+        `INSERT INTO detalle_pedidos (pedido_id, producto_nombre, cantidad, unidad)
+         VALUES ($1, $2, $3, $4)`,
+        [pedidoId, item.producto_nombre.trim(), item.cantidad, item.unidad.trim()]
       );
     }
 
@@ -398,13 +402,14 @@ app.get('/api/pedidos/cocina', async (req, res) => {
     const result = await db.query(
       `SELECT
          COALESCE(dp.producto_nombre, pr.nombre, 'Producto sin nombre') AS producto,
+         COALESCE(dp.unidad, '') AS unidad,
          SUM(dp.cantidad) AS cantidad_total
        FROM pedidos p
        JOIN detalle_pedidos dp ON dp.pedido_id = p.id
        LEFT JOIN productos pr ON pr.id = dp.producto_id
        WHERE p.fecha_entrega::DATE = $1::DATE
-       GROUP BY COALESCE(dp.producto_nombre, pr.nombre, 'Producto sin nombre')
-       ORDER BY producto ASC`,
+       GROUP BY COALESCE(dp.producto_nombre, pr.nombre, 'Producto sin nombre'), COALESCE(dp.unidad, '')
+       ORDER BY producto ASC, unidad ASC`,
       [fecha]
     );
     res.json(result.rows);

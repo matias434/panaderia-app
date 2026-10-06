@@ -2,6 +2,8 @@
 
 Aplicación web para cargar pedidos de reparto a revendedores y pedidos particulares con retiro en el local. Permite consultar pedidos por fecha, ver los pendientes y preparar las comandas para cocina.
 
+Cada renglón de producto registra cantidad, unidad y nombre por separado. Las unidades sugeridas incluyen kg, g, unidad, docena, bandeja, caja y litro; también se puede escribir otra unidad. Al consolidar Cocina, se suman solamente las cantidades del mismo nombre de producto y de la misma unidad, sin hacer conversiones entre unidades.
+
 ## Requisitos
 
 - Node.js

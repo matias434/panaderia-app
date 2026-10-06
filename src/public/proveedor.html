@@ -165,7 +165,7 @@
       tarjeta.innerHTML = `
         <h2>Pedido #${Number(pedido.id)} — ${escaparHTML(pedido.cliente_nombre)}</h2>
         <p><strong>${esAtrasado ? 'Atrasado' : 'Entrega de hoy'}:</strong> ${escaparHTML(fechaEntrega.split('-').reverse().join('/'))}</p>
-        <ul>${pedido.items.map(item => `<li><strong>${escaparHTML(item.cantidad)}</strong> — ${escaparHTML(item.producto_nombre)}</li>`).join('')}</ul>
+        <ul>${pedido.items.map(item => `<li><strong>${escaparHTML(item.cantidad)} ${escaparHTML(item.unidad || '')}</strong> — ${escaparHTML(item.producto_nombre)}</li>`).join('')}</ul>
         <button class="principal" type="button">Confirmar entrega realizada</button>
       `;
       tarjeta.querySelector('button').addEventListener('click', () => confirmarEntrega(pedido.id));

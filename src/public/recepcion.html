@@ -47,6 +47,12 @@
       border-color: #31814a;
       background: #e8f5eb;
     }
+    .item-pedido {
+      display: grid;
+      grid-template-columns: 90px 120px minmax(0, 1fr) auto;
+      gap: 8px;
+      margin: 8px 0;
+    }
     .estado-pedido {
       display: inline-block;
       padding: 4px 9px;
@@ -88,10 +94,8 @@
     @media (max-width: 600px) {
       body { margin: 10px; }
       .card { padding: 14px; margin-bottom: 14px; }
-      .item-pedido { flex-wrap: wrap; }
-      .item-pedido .nombre-producto { min-width: 55%; }
-      .item-pedido .cantidad-producto { min-width: 25%; }
-      .item-pedido .quitar-producto { flex: 1 0 100%; }
+      .item-pedido { grid-template-columns: 78px 95px minmax(0, 1fr); }
+      .item-pedido .quitar-producto { grid-column: 1 / -1; }
       .comanda-ticket { max-width: 100%; }
       #filtro-fecha { max-width: 100%; }
     }
@@ -136,9 +140,18 @@
       <label>Fecha de Entrega:</label><br>
       <input type="date" id="fecha_entrega" required style="width: 100%; padding: 8px; margin-bottom: 10px;"><br>
 
-      <label>Productos del pedido:</label>
+      <label>Productos del pedido (cantidad, unidad y producto):</label>
       <div id="items-pedido"></div>
-      <button type="button" id="agregar-producto" class="btn btn-blue" style="margin: 8px 0 16px;">+ Agregar producto</button><br>
+      <button type="button" id="agregar-producto" class="btn btn-blue" style="margin: 8px 0 16px;">+ Agregar producto</button>
+      <datalist id="unidades-comunes">
+        <option value="kg"></option>
+        <option value="g"></option>
+        <option value="unidad"></option>
+        <option value="docena"></option>
+        <option value="bandeja"></option>
+        <option value="caja"></option>
+        <option value="litro"></option>
+      </datalist><br>
 
       <button type="submit" class="btn">Guardar Pedido</button>
     </form>
@@ -177,12 +190,25 @@
     function agregarFilaProducto() {
       const fila = document.createElement('div');
       fila.className = 'item-pedido';
-      fila.style.cssText = 'display:flex; gap:8px; margin:8px 0;';
       fila.innerHTML = `
-        <input class="nombre-producto" type="text" placeholder="Escribir producto" maxlength="150" required style="flex:2; padding:8px;">
-        <input class="cantidad-producto" type="number" placeholder="Cant." min="0.1" step="any" required style="flex:1; padding:8px;">
+        <input class="cantidad-producto" type="number" inputmode="decimal" placeholder="Cant." min="0.01" step="any" required aria-label="Cantidad">
+        <input class="unidad-producto" type="text" list="unidades-comunes" placeholder="Unidad" maxlength="30" required aria-label="Unidad">
+        <input class="nombre-producto" type="text" placeholder="Producto" maxlength="150" required aria-label="Producto">
         <button type="button" class="btn btn-secondary quitar-producto" aria-label="Quitar producto">Quitar</button>
       `;
+      const campos = Array.from(fila.querySelectorAll('input'));
+      campos.forEach((campo, indice) => {
+        campo.style.cssText = 'min-width:0; width:100%; box-sizing:border-box; padding:8px;';
+        campo.addEventListener('keydown', event => {
+          if (event.key !== 'Enter') return;
+          event.preventDefault();
+          if (indice < campos.length - 1) {
+            campos[indice + 1].focus();
+          } else {
+            agregarFilaProducto().querySelector('.cantidad-producto').focus();
+          }
+        });
+      });
       fila.querySelector('.quitar-producto').addEventListener('click', () => {
         if (document.querySelectorAll('.item-pedido').length > 1) fila.remove();
       });
@@ -230,8 +256,9 @@
         repartidor: document.getElementById('repartidor').value || null,
         fecha_entrega: document.getElementById('fecha_entrega').value,
         items: Array.from(document.querySelectorAll('.item-pedido')).map(fila => ({
-          producto_nombre: fila.querySelector('.nombre-producto').value.trim(),
-          cantidad: fila.querySelector('.cantidad-producto').value
+          cantidad: fila.querySelector('.cantidad-producto').value,
+          unidad: fila.querySelector('.unidad-producto').value.trim(),
+          producto_nombre: fila.querySelector('.nombre-producto').value.trim()
         }))
       };
 
@@ -344,7 +371,7 @@
         <p><strong>Estado:</strong> <span class="estado-pedido ${completado ? 'completado' : 'pendiente'}">${completado ? 'Completado' : 'Pendiente'}</span></p>
         <ul>
           ${pedido.items && pedido.items.length > 0
-            ? pedido.items.map(item => `<li><strong>${escaparHTML(item.cantidad)}</strong> x${escaparHTML(item.producto_nombre)}</li>`).join('')
+            ? pedido.items.map(item => `<li><strong>${escaparHTML(item.cantidad)} ${escaparHTML(item.unidad || '')}</strong> — ${escaparHTML(item.producto_nombre)}</li>`).join('')
             : '<li>Sin detalles</li>'
           }
         </ul>
