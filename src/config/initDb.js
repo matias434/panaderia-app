@@ -1,4 +1,5 @@
 const db = require('./db');
+const catalogoProductos = require('./catalogoProductos');
 
 const initSchema = async () => {
   console.log('⏳ Conectando y creando tablas en PostgreSQL...');
@@ -18,6 +19,10 @@ const initSchema = async () => {
       id SERIAL PRIMARY KEY,
       nombre VARCHAR(100) NOT NULL,
       precio_unitario NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+      categoria VARCHAR(30) NOT NULL DEFAULT 'Otros',
+      subcategoria VARCHAR(30) NOT NULL DEFAULT 'General',
+      unidad VARCHAR(50),
+      activo BOOLEAN NOT NULL DEFAULT TRUE,
       creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -48,8 +53,34 @@ const initSchema = async () => {
   await db.query('ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS cliente_nombre VARCHAR(100)');
   await db.query('ALTER TABLE detalle_pedidos ADD COLUMN IF NOT EXISTS producto_nombre VARCHAR(150)');
   await db.query('ALTER TABLE detalle_pedidos ADD COLUMN IF NOT EXISTS unidad VARCHAR(30)');
+  await db.query("ALTER TABLE productos ADD COLUMN IF NOT EXISTS categoria VARCHAR(30) NOT NULL DEFAULT 'Otros'");
+  await db.query("ALTER TABLE productos ADD COLUMN IF NOT EXISTS subcategoria VARCHAR(30) NOT NULL DEFAULT 'General'");
+  await db.query('ALTER TABLE productos ADD COLUMN IF NOT EXISTS unidad VARCHAR(50)');
+  await db.query('ALTER TABLE productos ADD COLUMN IF NOT EXISTS activo BOOLEAN NOT NULL DEFAULT TRUE');
+  await db.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS productos_catalogo_unico
+    ON productos (categoria, subcategoria, nombre, unidad)
+    WHERE categoria IN ('Mayorista', 'Minorista')
+  `);
 
   console.log('✅ Tablas creadas exitosamente.');
+
+  await db.query("UPDATE productos SET activo = FALSE WHERE categoria IN ('Mayorista', 'Minorista')");
+  await db.query(
+    `INSERT INTO productos (nombre, precio_unitario, categoria, subcategoria, unidad)
+     SELECT catalogo.nombre, 0, catalogo.categoria, catalogo.subcategoria, catalogo.unidad
+     FROM UNNEST($1::VARCHAR[], $2::VARCHAR[], $3::VARCHAR[], $4::VARCHAR[])
+       AS catalogo(nombre, categoria, subcategoria, unidad)
+     ON CONFLICT (categoria, subcategoria, nombre, unidad)
+       WHERE categoria IN ('Mayorista', 'Minorista')
+     DO UPDATE SET activo = TRUE`,
+    [
+      catalogoProductos.map(producto => producto.nombre),
+      catalogoProductos.map(producto => producto.categoria),
+      catalogoProductos.map(producto => producto.subcategoria),
+      catalogoProductos.map(producto => producto.unidad)
+    ]
+  );
 
   // Cargar datos de prueba si las tablas están vacías
   const checkClientes = await db.query('SELECT COUNT(*) FROM clientes');

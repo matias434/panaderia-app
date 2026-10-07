@@ -154,16 +154,9 @@
 
       <label>Productos del pedido (cantidad, unidad y producto):</label>
       <div id="items-pedido"></div>
+      <p id="error-catalogo" role="alert" hidden></p>
       <button type="button" id="agregar-producto" class="btn btn-blue" style="margin: 8px 0 16px;">+ Agregar producto</button>
-      <datalist id="unidades-comunes">
-        <option value="kg"></option>
-        <option value="g"></option>
-        <option value="unidad"></option>
-        <option value="docena"></option>
-        <option value="bandeja"></option>
-        <option value="caja"></option>
-        <option value="litro"></option>
-      </datalist><br>
+      <br>
 
       <button type="submit" class="btn">Guardar Pedido</button>
     </form>
@@ -200,6 +193,8 @@
     const hoy = new Date().toISOString().split('T')[0];
     document.getElementById('fecha_entrega').value = hoy;
     document.getElementById('filtro-fecha').value = hoy;
+    let productosCatalogo = [];
+
     function abrirResumenProductos() {
       const fecha = document.getElementById('filtro-fecha').value;
       if (!fecha) {
@@ -214,11 +209,38 @@
       fila.className = 'item-pedido';
       fila.innerHTML = `
         <input class="cantidad-producto" type="number" inputmode="decimal" placeholder="Cant." min="0.01" step="any" required aria-label="Cantidad">
-        <input class="unidad-producto" type="text" list="unidades-comunes" placeholder="Unidad" maxlength="30" required aria-label="Unidad">
-        <input class="nombre-producto" type="text" placeholder="Producto" maxlength="150" required aria-label="Producto">
+        <input class="unidad-producto" type="text" placeholder="Unidad" readonly required aria-label="Unidad">
+        <select class="producto-select" required aria-label="Producto">
+          <option value="">-- Seleccionar producto --</option>
+        </select>
         <button type="button" class="btn btn-secondary quitar-producto" aria-label="Quitar producto">Quitar</button>
       `;
-      const campos = Array.from(fila.querySelectorAll('input'));
+      const selector = fila.querySelector('.producto-select');
+      const grupos = [
+        ['Mayorista', 'General', 'Mayorista'],
+        ['Minorista', 'Dulce', 'Minorista — Dulce'],
+        ['Minorista', 'Salado', 'Minorista — Salado']
+      ];
+      grupos.forEach(([categoria, subcategoria, etiqueta]) => {
+        const productosGrupo = productosCatalogo.filter(producto =>
+          producto.categoria === categoria && producto.subcategoria === subcategoria
+        );
+        if (productosGrupo.length === 0) return;
+        const grupo = document.createElement('optgroup');
+        grupo.label = etiqueta;
+        productosGrupo.forEach(producto => {
+          const opcion = document.createElement('option');
+          opcion.value = producto.id;
+          opcion.textContent = `${producto.nombre} — ${producto.unidad}`;
+          grupo.appendChild(opcion);
+        });
+        selector.appendChild(grupo);
+      });
+      selector.addEventListener('change', () => {
+        const producto = productosCatalogo.find(item => String(item.id) === selector.value);
+        fila.querySelector('.unidad-producto').value = producto ? producto.unidad : '';
+      });
+      const campos = Array.from(fila.querySelectorAll('input, select'));
       campos.forEach((campo, indice) => {
         campo.style.cssText = 'min-width:0; width:100%; box-sizing:border-box; padding:8px;';
         campo.addEventListener('keydown', event => {
@@ -253,8 +275,17 @@
     // Inicializar desplegables
     async function init() {
       try {
-        const resClientes = await fetch('/api/clientes');
+        const [resClientes, resProductos] = await Promise.all([
+          fetch('/api/clientes'),
+          fetch('/api/productos')
+        ]);
+        if (!resClientes.ok) throw new Error('No se pudieron cargar los clientes');
+        if (!resProductos.ok) throw new Error('No se pudo cargar el catálogo de productos');
         const clientes = await resClientes.json();
+        productosCatalogo = await resProductos.json();
+        if (!Array.isArray(productosCatalogo) || productosCatalogo.length === 0) {
+          throw new Error('El catálogo de productos está vacío');
+        }
         const selectC = document.getElementById('cliente_id');
         selectC.innerHTML = '<option value="">-- Seleccionar Cliente --</option>' + 
           clientes.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
@@ -264,6 +295,9 @@
         cargarPedidos();
       } catch (err) {
         console.error('Error al inicializar datos:', err);
+        const mensaje = document.getElementById('error-catalogo');
+        mensaje.textContent = `No se pudo iniciar la carga de pedidos: ${err.message}. Actualizá la página o avisá al administrador.`;
+        mensaje.hidden = false;
       }
     }
 
@@ -279,8 +313,7 @@
         fecha_entrega: document.getElementById('fecha_entrega').value,
         items: Array.from(document.querySelectorAll('.item-pedido')).map(fila => ({
           cantidad: fila.querySelector('.cantidad-producto').value,
-          unidad: fila.querySelector('.unidad-producto').value.trim(),
-          producto_nombre: fila.querySelector('.nombre-producto').value.trim()
+          producto_id: Number(fila.querySelector('.producto-select').value)
         }))
       };
 

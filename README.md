@@ -2,7 +2,9 @@
 
 Aplicación web para cargar pedidos de reparto a revendedores y pedidos particulares con retiro en el local. Permite consultar pedidos por fecha, ver los pendientes y preparar las comandas para cocina.
 
-Cada renglón de producto registra cantidad, unidad y nombre por separado. Las unidades sugeridas incluyen kg, g, unidad, docena, bandeja, caja y litro; también se puede escribir otra unidad. Desde Recepción se puede abrir e imprimir, para la fecha seleccionada, los pedidos agrupados por producto y unidad, con cantidad, destinatario, fecha, repartidor y total por grupo. No se hacen conversiones entre unidades.
+Los productos se eligen del catálogo en Recepción, agrupados en Mayorista y Minorista (Dulce/Salado). Cada opción tiene su unidad o presentación definida para evitar errores de escritura y sumar unidades incompatibles. El catálogo se carga idempotentemente al iniciar el servidor; sus definiciones están en `src/config/catalogoProductos.js`. Las opciones retiradas o corregidas dejan de aparecer al reiniciar; los pedidos históricos conservan el nombre y la unidad con que se guardaron.
+
+Desde Recepción se puede abrir e imprimir, para la fecha seleccionada, los pedidos agrupados por producto y unidad, con cantidad, destinatario, fecha, repartidor y total por grupo. No se hacen conversiones entre unidades.
 
 Desde las tarjetas de pedido en Recepción se puede eliminar definitivamente un pedido con confirmación; también se eliminan sus renglones de detalle.
 

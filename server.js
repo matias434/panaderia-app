@@ -43,7 +43,12 @@ app.get('/api/clientes', async (req, res) => {
 // 2. Obtener todos los productos
 app.get('/api/productos', async (req, res) => {
   try {
-    const result = await db.query('SELECT id, nombre, precio_unitario FROM productos ORDER BY nombre ASC');
+    const result = await db.query(
+      `SELECT id, nombre, precio_unitario, categoria, subcategoria, unidad
+       FROM productos
+       WHERE activo = TRUE AND categoria IN ('Mayorista', 'Minorista')
+       ORDER BY categoria ASC, subcategoria ASC, nombre ASC, unidad ASC`
+    );
     res.json(result.rows);
   } catch (error) {
     console.error('Error al obtener productos:', error);
@@ -309,20 +314,28 @@ app.post('/api/pedidos', async (req, res) => {
       items.length === 0 ||
       items.some(item =>
         !item ||
-        typeof item.producto_nombre !== 'string' ||
-        !item.producto_nombre.trim() ||
-        item.producto_nombre.trim().length > 150 ||
-        typeof item.unidad !== 'string' ||
-        !item.unidad.trim() ||
-        item.unidad.trim().length > 30 ||
+        !Number.isInteger(Number(item.producto_id)) ||
+        Number(item.producto_id) <= 0 ||
         !Number.isFinite(Number(item.cantidad)) ||
         Number(item.cantidad) <= 0
       )
     ) {
-      return res.status(400).json({ error: 'Completá cantidad, unidad y producto en cada renglón' });
+      return res.status(400).json({ error: 'Seleccioná un producto y completá la cantidad en cada renglón' });
     }
 
     client = await db.pool.connect();
+    const idsProductos = [...new Set(items.map(item => Number(item.producto_id)))];
+    const resultProductos = await client.query(
+      `SELECT id, nombre, unidad
+       FROM productos
+      WHERE id = ANY($1::INT[]) AND activo = TRUE AND categoria IN ('Mayorista', 'Minorista')`,
+      [idsProductos]
+    );
+    const productosPorId = new Map(resultProductos.rows.map(producto => [producto.id, producto]));
+    if (productosPorId.size !== idsProductos.length) {
+      return res.status(400).json({ error: 'Uno o más productos seleccionados no están en el catálogo' });
+    }
+
     await client.query('BEGIN');
 
     // Insertar cabecera del pedido
@@ -341,10 +354,11 @@ app.post('/api/pedidos', async (req, res) => {
 
     // Insertar ítems del detalle
     for (const item of items) {
+      const producto = productosPorId.get(Number(item.producto_id));
       await client.query(
-        `INSERT INTO detalle_pedidos (pedido_id, producto_nombre, cantidad, unidad)
-         VALUES ($1, $2, $3, $4)`,
-        [pedidoId, item.producto_nombre.trim(), item.cantidad, item.unidad.trim()]
+        `INSERT INTO detalle_pedidos (pedido_id, producto_id, producto_nombre, cantidad, unidad)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [pedidoId, producto.id, producto.nombre, item.cantidad, producto.unidad]
       );
     }
 
