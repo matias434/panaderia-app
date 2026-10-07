@@ -39,6 +39,18 @@
       max-width: 380px;
       border-radius: 5px;
     }
+    .acciones-comanda {
+      display: flex;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .btn-eliminar-pedido {
+      padding: 6px 9px;
+      background: #a12622;
+      font-size: 13px;
+    }
     .pedido-pendiente {
       border-color: #d99000;
       background: #fff4d6;
@@ -176,6 +188,7 @@
     <label>Filtrar por Fecha:</label>
     <input type="date" id="filtro-fecha" style="padding: 8px;">
     <button class="btn btn-blue" onclick="cargarPedidos()">Ver Pedidos</button>
+    <button class="btn btn-secondary" onclick="abrirResumenProductos()">Ver total productos</button>
     <button class="btn btn-secondary" onclick="window.print()">🖨️ Imprimir Todo para Cocina</button>
   </div>
 
@@ -187,6 +200,15 @@
     const hoy = new Date().toISOString().split('T')[0];
     document.getElementById('fecha_entrega').value = hoy;
     document.getElementById('filtro-fecha').value = hoy;
+    function abrirResumenProductos() {
+      const fecha = document.getElementById('filtro-fecha').value;
+      if (!fecha) {
+        alert('Seleccioná una fecha de entrega');
+        return;
+      }
+      window.location.href = `/pedidos.html?vista=productos&fecha=${encodeURIComponent(fecha)}`;
+    }
+
     function agregarFilaProducto() {
       const fila = document.createElement('div');
       fila.className = 'item-pedido';
@@ -375,12 +397,32 @@
             : '<li>Sin detalles</li>'
           }
         </ul>
-        ${permitirCompletar
-          ? `<button class="btn" type="button" onclick="completarPedido(${Number(pedido.id)})">Marcar como completado</button>`
-          : '<button class="btn btn-secondary no-print" onclick="window.print()">🖨️ Imprimir Ticket</button>'
-        }
+        <div class="acciones-comanda no-print">
+          ${permitirCompletar
+            ? `<button class="btn" type="button" onclick="completarPedido(${Number(pedido.id)})">Marcar como completado</button>`
+            : '<button class="btn btn-secondary" onclick="window.print()">🖨️ Imprimir Ticket</button>'
+          }
+          <button class="btn btn-eliminar-pedido" type="button" onclick="eliminarPedido(${Number(pedido.id)})">Eliminar pedido</button>
+        </div>
       `;
       return div;
+    }
+
+    async function eliminarPedido(id) {
+      const tarjeta = Array.from(document.querySelectorAll('.comanda-ticket'))
+        .find(elemento => elemento.querySelector('h3')?.textContent.startsWith(`Pedido #${id} -`));
+      const encabezado = tarjeta?.querySelector('h3')?.textContent || `Pedido #${id}`;
+      if (!window.confirm(`¿Eliminar definitivamente ${encabezado}?\n\nSe borrarán también sus productos y no se puede deshacer.`)) return;
+
+      try {
+        const response = await fetch(`/api/pedidos/${id}`, { method: 'DELETE' });
+        const resultado = await response.json();
+        if (!response.ok) throw new Error(resultado.error || 'No se pudo eliminar el pedido');
+        await cargarPedidos();
+      } catch (error) {
+        console.error('Error al eliminar pedido:', error);
+        alert(`❌ ${error.message}`);
+      }
     }
 
     async function completarPedido(id) {

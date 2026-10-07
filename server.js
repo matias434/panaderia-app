@@ -391,6 +391,41 @@ app.get('/api/pedidos/fecha/:fecha', async (req, res) => {
   }
 });
 
+app.delete('/api/pedidos/:id', async (req, res) => {
+  const pedidoId = Number(req.params.id);
+  if (!Number.isInteger(pedidoId) || pedidoId <= 0) {
+    return res.status(400).json({ error: 'El número de pedido no es válido' });
+  }
+
+  let client;
+  try {
+    client = await db.pool.connect();
+    await client.query('BEGIN');
+    await client.query('DELETE FROM detalle_pedidos WHERE pedido_id = $1', [pedidoId]);
+    const result = await client.query('DELETE FROM pedidos WHERE id = $1 RETURNING id', [pedidoId]);
+
+    if (result.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'No se encontró el pedido' });
+    }
+
+    await client.query('COMMIT');
+    res.json({ id: result.rows[0].id, mensaje: 'Pedido eliminado definitivamente' });
+  } catch (error) {
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('Error al deshacer la eliminación del pedido:', rollbackError);
+      }
+    }
+    console.error('Error al eliminar pedido:', error);
+    res.status(500).json({ error: 'No se pudo eliminar el pedido' });
+  } finally {
+    if (client) client.release();
+  }
+});
+
 // Consolidar la producción por producto y fecha de entrega
 app.get('/api/pedidos/cocina', async (req, res) => {
   const { fecha } = req.query;

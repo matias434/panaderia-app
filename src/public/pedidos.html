@@ -90,6 +90,38 @@
       font-size: 18px;
       width: 30%;
     }
+    #resumen-produccion {
+      margin-bottom: 24px;
+    }
+    .grupo-producto-produccion {
+      margin: 18px 0;
+      break-inside: avoid;
+    }
+    .grupo-producto-produccion h2 {
+      margin: 0;
+      padding: 10px;
+      background: #e5e5e5;
+      border: 1px solid #333;
+      border-bottom: 0;
+    }
+    .tabla-produccion {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+    }
+    .tabla-produccion th,
+    .tabla-produccion td {
+      border: 1px solid #333;
+      padding: 10px;
+      text-align: left;
+    }
+    .tabla-produccion th { background: #e5e5e5; }
+    .tabla-produccion td:first-child,
+    .tabla-produccion tfoot td:last-child {
+      white-space: nowrap;
+      font-weight: bold;
+    }
+    .tabla-produccion tfoot { background: #f1f1f1; }
 
     @media (max-width: 600px) {
       body {
@@ -127,6 +159,8 @@
         padding: 8px 4px;
         overflow-wrap: anywhere;
       }
+      .tabla-produccion th,
+      .tabla-produccion td { padding: 8px 5px; }
     }
 
     /* Reglas exclusivas para Impresión */
@@ -147,13 +181,31 @@
       .grupo-repartidor:not(:first-child) {
         page-break-before: always;
       }
+      body.imprimir-resumen-produccion .panel-control,
+      body.imprimir-resumen-produccion #contenedor-comandas {
+        display: none !important;
+      }
+      body.imprimir-resumen-produccion #resumen-produccion[hidden] {
+        display: none !important;
+      }
+      body.imprimir-resumen-produccion #resumen-produccion {
+        display: block;
+      }
+      body.imprimir-resumen-produccion .tabla-produccion {
+        font-size: 11pt;
+      }
+      body.imprimir-resumen-produccion .tabla-produccion th,
+      body.imprimir-resumen-produccion .tabla-produccion td {
+        padding: 7px;
+      }
+      body.imprimir-resumen-produccion .grupo-producto-produccion { break-inside: avoid; }
     }
   </style>
 </head>
 <body>
 
   <!-- Panel de Control (Oculto al imprimir) -->
-  <div class="no-print">
+  <div class="no-print panel-control">
     <h1>📄 Pedidos para Cocina</h1>
     <label for="fecha">Fecha de Entrega: </label>
     <input type="date" id="fecha">
@@ -167,18 +219,37 @@
     </select>
     <button class="btn btn-secondary" onclick="cargarPedidos()">Buscar Pedidos</button>
     <button class="btn" onclick="window.print()">🖨️ Imprimir Hoja para Cocina</button>
+    <button class="btn btn-secondary" onclick="cargarResumenProduccion()">Ver total productos</button>
     <a href="/recepcion.html" style="margin-left: 15px;">← Volver a Recepción</a>
   </div>
+
+  <section id="resumen-produccion" hidden>
+    <div class="no-print">
+      <button class="btn" onclick="imprimirResumenProduccion()">🖨️ Imprimir total productos</button>
+      <a class="btn btn-secondary" href="/recepcion.html">← Volver a Recepción</a>
+    </div>
+    <h1>🥖 Pedidos agrupados por producto</h1>
+    <h3 id="fecha-resumen-produccion"></h3>
+    <p>Se incluyen todos los repartidores y retiros del local para la fecha seleccionada. Los productos con distinta unidad se muestran por separado.</p>
+    <div id="tablas-resumen-produccion"></div>
+  </section>
 
   <!-- Contenedor donde se generan las comandas -->
   <div id="contenedor-comandas"></div>
 
   <script>
     // Configurar fecha por defecto a hoy
-    document.getElementById('fecha').value = new Date().toISOString().split('T')[0];
+    const parametrosIniciales = new URLSearchParams(window.location.search);
+    const fechaInicial = parametrosIniciales.get('fecha');
+    const fechaValida = fechaInicial && /^\d{4}-\d{2}-\d{2}$/.test(fechaInicial);
+    document.getElementById('fecha').value = fechaValida
+      ? fechaInicial
+      : new Date().toISOString().split('T')[0];
 
     async function cargarPedidos() {
       const fecha = document.getElementById('fecha').value;
+      document.getElementById('resumen-produccion').hidden = true;
+      document.getElementById('contenedor-comandas').hidden = false;
       const res = await fetch(`/api/pedidos/fecha/${fecha}`);
       const pedidos = await res.json();
 
@@ -255,6 +326,107 @@
       });
     }
 
+    async function cargarResumenProduccion() {
+      const fecha = document.getElementById('fecha').value;
+      if (!fecha) {
+        alert('Seleccioná una fecha de entrega');
+        return;
+      }
+
+      const resumen = document.getElementById('resumen-produccion');
+      const contenedor = document.getElementById('tablas-resumen-produccion');
+      resumen.hidden = false;
+      document.getElementById('fecha-resumen-produccion').textContent = `Fecha de entrega: ${fecha}`;
+      contenedor.innerHTML = '<p>Cargando pedidos…</p>';
+      document.getElementById('contenedor-comandas').hidden = true;
+
+      try {
+        const response = await fetch(`/api/pedidos/fecha/${encodeURIComponent(fecha)}`);
+        if (!response.ok) throw new Error(`Error al consultar pedidos (${response.status})`);
+        const pedidos = await response.json();
+
+        if (!Array.isArray(pedidos)) throw new Error('La respuesta de pedidos no es válida');
+        if (pedidos.length === 0) {
+          contenedor.innerHTML = '<p>No hay pedidos registrados para esta fecha.</p>';
+          return;
+        }
+
+        const productos = new Map();
+        pedidos.forEach(pedido => {
+          pedido.items.forEach(item => {
+            const nombre = String(item.producto_nombre || 'Producto sin nombre').trim();
+            const unidad = String(item.unidad || '').trim();
+            const clave = `${nombre.toLocaleLowerCase()}|${unidad.toLocaleLowerCase()}`;
+            if (!productos.has(clave)) {
+              productos.set(clave, { nombre, unidad, renglones: [], total: 0 });
+            }
+            const producto = productos.get(clave);
+            const cantidad = Number(item.cantidad);
+            if (!Number.isFinite(cantidad)) return;
+            producto.renglones.push({ pedido, cantidad });
+            producto.total += cantidad;
+          });
+        });
+
+        const grupos = Array.from(productos.values())
+          .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es') || a.unidad.localeCompare(b.unidad, 'es'));
+        if (grupos.length === 0) {
+          contenedor.innerHTML = '<p>No hay productos en los pedidos de esta fecha.</p>';
+          return;
+        }
+
+        const formatearCantidad = cantidad => new Intl.NumberFormat('es-AR', {
+          maximumFractionDigits: 2
+        }).format(cantidad);
+        contenedor.innerHTML = grupos.map(producto => `
+          <section class="grupo-producto-produccion">
+            <h2>${escaparHTML(producto.nombre)}${producto.unidad ? ` — ${escaparHTML(producto.unidad)}` : ''}</h2>
+            <table class="tabla-produccion">
+              <thead>
+                <tr>
+                  <th>Cantidad</th>
+                  <th>Kiosco / destinatario</th>
+                  <th>Fecha</th>
+                  <th>Repartidor</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${producto.renglones.map(({ pedido, cantidad }) => `
+                  <tr>
+                    <td>${formatearCantidad(cantidad)}${producto.unidad ? ` ${escaparHTML(producto.unidad)}` : ''}</td>
+                    <td>${escaparHTML(pedido.cliente_nombre || (pedido.tipo_entrega === 'Retiro en local' ? 'Retiro en el local' : 'Sin destinatario'))}</td>
+                    <td>${escaparHTML(pedido.fecha_entrega)}</td>
+                    <td>${escaparHTML(pedido.repartidor || (pedido.tipo_entrega === 'Retiro en local' ? 'Retiro en el local' : 'Sin asignar'))}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="4">Total: ${formatearCantidad(producto.total)}${producto.unidad ? ` ${escaparHTML(producto.unidad)}` : ''}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </section>
+        `).join('');
+      } catch (error) {
+        console.error('Error al cargar el detalle agrupado por producto:', error);
+        contenedor.innerHTML = '<p>No se pudieron cargar los pedidos. Intentá nuevamente.</p>';
+      }
+    }
+
+    function imprimirResumenProduccion() {
+      if (document.getElementById('resumen-produccion').hidden) {
+        alert('Primero seleccioná una fecha y presioná “Ver totales agrupados por producto”.');
+        return;
+      }
+      document.body.classList.add('imprimir-resumen-produccion');
+      window.print();
+    }
+
+    window.addEventListener('afterprint', () => {
+      document.body.classList.remove('imprimir-resumen-produccion');
+    });
+
     function imprimirComandaIndividual(btn) {
       const card = btn.closest('.comanda-card');
       const contenidoOriginal = document.body.innerHTML;
@@ -274,8 +446,12 @@
       })[caracter]);
     }
 
-    // Cargar al entrar
-    cargarPedidos();
+    // Abrir directamente el informe cuando se solicita desde Recepción.
+    if (parametrosIniciales.get('vista') === 'productos') {
+      cargarResumenProduccion();
+    } else {
+      cargarPedidos();
+    }
   </script>
 </body>
 </html>
