@@ -36,12 +36,32 @@
     button:disabled { cursor: wait; opacity: .65; }
     .principal { margin-top: 16px; color: white; background: #26733d; }
     .salir { color: #58311f; background: #f0e8e2; }
-    .envio { padding: 16px; margin: 12px 0; border-left: 6px solid #d99000; }
+    .quitar-pedido { margin-top: 10px; color: #fff; background: #675348; }
+    .envio { padding: 16px; margin: 12px 0; border: 2px solid; border-left-width: 8px; }
+    .envio.pendiente { border-color: #d89b00; background: #fff9e6; }
+    .envio.atrasado { border-color: #c62828; background: #fff0ef; }
+    .envio.entregado { border-color: #218344; background: #edf8f0; }
+    .estado-envio {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border-radius: 999px;
+      padding: 7px 12px;
+      margin-bottom: 10px;
+      font-weight: 800;
+      font-size: .95rem;
+    }
+    .estado-envio.pendiente { color: #684900; background: #ffe9a6; }
+    .estado-envio.atrasado { color: #8f1717; background: #ffd8d5; }
+    .estado-envio.entregado { color: #155d2b; background: #ccebd4; }
     .envio h2 { margin-bottom: 8px; }
     .envio p { margin: 8px 0; }
     .envio ul { padding-left: 22px; margin-bottom: 0; }
     .error { color: #9f1d16; font-weight: 650; }
     .secundario { color: #6a5d55; font-size: .9rem; }
+    .resumen-cobro { border-top: 1px solid #e2d9d2; margin-top: 14px; padding-top: 10px; }
+    .historial-pagos { margin: 8px 0; padding-left: 20px; }
+    .cobro-form { border-top: 1px solid #e2d9d2; margin-top: 12px; padding-top: 12px; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -123,7 +143,7 @@
 
     async function mostrarEnvios(repartidor) {
       document.getElementById('pin').value = '';
-      saludo.textContent = `Hola, ${repartidor}. Se muestran los envíos pendientes para hoy y los atrasados.`;
+      saludo.textContent = `Hola, ${repartidor}. Se muestran tus envíos de hoy y atrasados; los entregados y cobrados se ocultan después de 8 horas.`;
       panelAcceso.hidden = true;
       panelEnvios.hidden = false;
       await cargarEnvios();
@@ -143,7 +163,7 @@
         listadoEnvios.innerHTML = '';
 
         if (pedidos.length === 0) {
-          listadoEnvios.innerHTML = '<p>No tenés envíos pendientes para hoy. Si había entregas atrasadas, ya están confirmadas.</p>';
+          listadoEnvios.innerHTML = '<p>No tenés entregas ni cobros pendientes para hoy.</p>';
           return;
         }
 
@@ -159,16 +179,68 @@
 
     function crearTarjeta(pedido, hoy) {
       const tarjeta = document.createElement('article');
-      tarjeta.className = 'envio';
       const fechaEntrega = String(pedido.fecha_entrega);
       const esAtrasado = fechaEntrega < hoy;
+      const entregado = String(pedido.estado || '').toLowerCase() === 'completado';
+      const claseEstado = entregado ? 'entregado' : esAtrasado ? 'atrasado' : 'pendiente';
+      const etiquetaEstado = entregado ? '✓ ENTREGADO' : esAtrasado ? '⚠ ATRASADO' : '● PENDIENTE';
+      tarjeta.className = `envio ${claseEstado}`;
+      const precioCargado = pedido.total_pedido !== null && pedido.total_pedido !== undefined;
+      const total = precioCargado ? Number(pedido.total_pedido) : null;
+      const pagado = Number(pedido.total_pagado || 0);
+      const saldo = precioCargado ? Math.max(0, total - pagado) : null;
+      const moneda = monto => new Intl.NumberFormat('es-AR', {
+        style: 'currency',
+        currency: 'ARS',
+        maximumFractionDigits: 2
+      }).format(monto);
+      const historial = Array.isArray(pedido.pagos) && pedido.pagos.length
+        ? `<p><strong>Cobros registrados:</strong></p><ul class="historial-pagos">${pedido.pagos.map(pago =>
+            `<li>${escaparHTML(pago.medio)}: ${moneda(Number(pago.monto))}</li>`
+          ).join('')}</ul>`
+        : '<p class="secundario">Todavía no hay cobros registrados.</p>';
       tarjeta.innerHTML = `
+        <div class="estado-envio ${claseEstado}" role="status">${etiquetaEstado}</div>
         <h2>Pedido #${Number(pedido.id)} — ${escaparHTML(pedido.cliente_nombre)}</h2>
-        <p><strong>${esAtrasado ? 'Atrasado' : 'Entrega de hoy'}:</strong> ${escaparHTML(fechaEntrega.split('-').reverse().join('/'))}</p>
+        <p><strong>Fecha de entrega:</strong> ${escaparHTML(fechaEntrega.split('-').reverse().join('/'))}</p>
         <ul>${pedido.items.map(item => `<li><strong>${escaparHTML(item.cantidad)} ${escaparHTML(item.unidad || '')}</strong> — ${escaparHTML(item.producto_nombre)}</li>`).join('')}</ul>
-        <button class="principal" type="button">Confirmar entrega realizada</button>
+        <div class="resumen-cobro">
+          ${precioCargado
+            ? `<p><strong>Total del pedido:</strong> ${moneda(total)}</p><p><strong>Cobrado:</strong> ${moneda(pagado)}</p><p><strong>Saldo de este pedido:</strong> ${moneda(saldo)}</p>${historial}`
+            : '<p class="error">Pedido todavía sin valorizar. Consultá a Secretaría para ver el total y registrar un cobro.</p>'
+          }
+        </div>
+        ${entregado
+          ? '<p><strong>Entrega:</strong> Confirmada</p>'
+          : '<button class="principal" data-action="entregar" type="button">Confirmar entrega realizada</button>'
+        }
+        ${entregado
+          ? '<button class="quitar-pedido" data-action="ocultar" type="button">Quitar de Mis envíos</button>'
+          : ''
+        }
+        ${entregado && precioCargado && saldo > 0
+          ? `<form class="cobro-form">
+              <label>Monto recibido</label>
+              <input name="monto" type="number" min="0.01" max="${saldo.toFixed(2)}" step="0.01" inputmode="decimal" required>
+              <label>Medio de pago</label>
+              <select name="medio" required>
+                <option value="">Seleccionar medio</option>
+                <option value="Efectivo">Efectivo</option>
+                <option value="Mercado Pago">Mercado Pago</option>
+              </select>
+              <button class="principal" type="submit">Registrar cobro</button>
+            </form>`
+          : ''
+        }
       `;
-      tarjeta.querySelector('button').addEventListener('click', () => confirmarEntrega(pedido.id));
+      const botonEntrega = tarjeta.querySelector('[data-action="entregar"]');
+      if (botonEntrega) botonEntrega.addEventListener('click', () => confirmarEntrega(pedido.id));
+      const botonOcultar = tarjeta.querySelector('[data-action="ocultar"]');
+      if (botonOcultar) botonOcultar.addEventListener('click', () => ocultarPedido(pedido.id, botonOcultar));
+      const formularioCobro = tarjeta.querySelector('.cobro-form');
+      if (formularioCobro) {
+        formularioCobro.addEventListener('submit', evento => registrarCobro(evento, pedido.id));
+      }
       return tarjeta;
     }
 
@@ -176,7 +248,7 @@
       if (!window.confirm(`¿Confirmás que realizaste la entrega del pedido #${id}?`)) return;
       const boton = Array.from(listadoEnvios.querySelectorAll('.envio')).find(tarjeta =>
         tarjeta.querySelector('h2').textContent.startsWith(`Pedido #${id} —`)
-      )?.querySelector('button');
+      )?.querySelector('[data-action="entregar"]');
       if (boton) boton.disabled = true;
 
       try {
@@ -188,6 +260,53 @@
         console.error('Error confirmando entrega:', error);
         window.alert(`❌ ${error.message}`);
         if (boton) boton.disabled = false;
+      }
+    }
+
+    async function ocultarPedido(id, boton) {
+      if (!window.confirm(`¿Quitar el pedido #${id} de Mis envíos? El pedido y sus cobros se conservarán para Secretaría, pero ya no aparecerá en tu lista.`)) return;
+      boton.disabled = true;
+      try {
+        const respuesta = await fetch(`/api/proveedor/pedidos/${id}/ocultar`, { method: 'PATCH' });
+        const resultado = await respuesta.json();
+        if (respuesta.status === 401) {
+          cerrarSesion(false);
+          return;
+        }
+        if (!respuesta.ok) throw new Error(resultado.error || 'No se pudo quitar el pedido de Mis envíos');
+        await cargarEnvios();
+      } catch (error) {
+        console.error('Error quitando pedido de Mis envíos:', error);
+        window.alert(`❌ ${error.message}`);
+        boton.disabled = false;
+      }
+    }
+
+    async function registrarCobro(evento, id) {
+      evento.preventDefault();
+      const formulario = evento.currentTarget;
+      const boton = formulario.querySelector('button[type="submit"]');
+      boton.disabled = true;
+      try {
+        const respuesta = await fetch(`/api/proveedor/pedidos/${id}/pagos`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            monto: formulario.elements.monto.value,
+            medio: formulario.elements.medio.value
+          })
+        });
+        const resultado = await respuesta.json();
+        if (respuesta.status === 401) {
+          cerrarSesion(false);
+          return;
+        }
+        if (!respuesta.ok) throw new Error(resultado.error || 'No se pudo registrar el cobro');
+        await cargarEnvios();
+      } catch (error) {
+        console.error('Error registrando el cobro:', error);
+        window.alert(`❌ ${error.message}`);
+        boton.disabled = false;
       }
     }
 

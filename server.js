@@ -9,7 +9,9 @@ const PORT = process.env.PORT || 3000;
 app.set('trust proxy', 1);
 const repartidores = ['Rodrigo', 'Elsa', 'Marcos'];
 const nombreCookieProveedor = 'proveedor_sesion';
+const nombreCookieSecretaria = 'secretaria_sesion';
 const intentosLoginProveedor = new Map();
+const intentosLoginSecretaria = new Map();
 const duracionSesionMs = 12 * 60 * 60 * 1000;
 
 // Middlewares
@@ -152,6 +154,52 @@ function requiereSesionProveedor(req, res, next) {
   next();
 }
 
+function obtenerSecretariaDeSesion(req) {
+  const secreto = process.env.SECRETARY_SESSION_SECRET;
+  if (!secreto || secreto.length < 32) return false;
+
+  const [contenido, firma, extra] = leerCookie(req, nombreCookieSecretaria).split('.');
+  if (!contenido || !firma || extra) return false;
+
+  const firmaEsperada = crearFirmaSesion(contenido, secreto);
+  const firmaBuffer = Buffer.from(firma);
+  const firmaEsperadaBuffer = Buffer.from(firmaEsperada);
+  if (
+    firmaBuffer.length !== firmaEsperadaBuffer.length ||
+    !crypto.timingSafeEqual(firmaBuffer, firmaEsperadaBuffer)
+  ) return false;
+
+  try {
+    const sesion = JSON.parse(Buffer.from(contenido, 'base64url').toString('utf8'));
+    return sesion.rol === 'secretaria' && Number.isFinite(sesion.expira) && sesion.expira > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+function requiereSesionSecretaria(req, res, next) {
+  if (!obtenerSecretariaDeSesion(req)) {
+    return res.status(401).json({ error: 'La sesión de Secretaría venció. Ingresá nuevamente.' });
+  }
+  next();
+}
+
+function configurarCookieSecretaria(res, valor) {
+  const segura = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'railway' || res.req.secure
+    ? '; Secure'
+    : '';
+  res.setHeader(
+    'Set-Cookie',
+    `${nombreCookieSecretaria}=${valor}; HttpOnly; SameSite=Strict; Path=/api/secretaria; Max-Age=${duracionSesionMs / 1000}${segura}`
+  );
+}
+
+function validarFechaISO(fecha) {
+  if (typeof fecha !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return false;
+  const fechaParseada = new Date(`${fecha}T00:00:00.000Z`);
+  return Number.isFinite(fechaParseada.getTime()) && fechaParseada.toISOString().slice(0, 10) === fecha;
+}
+
 function obtenerFechaArgentina() {
   const partes = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Argentina/Buenos_Aires',
@@ -172,6 +220,222 @@ function configurarCookieProveedor(res, valor) {
     `${nombreCookieProveedor}=${valor}; HttpOnly; SameSite=Strict; Path=/api/proveedor; Max-Age=${duracionSesionMs / 1000}${segura}`
   );
 }
+
+app.post('/api/secretaria/login', (req, res) => {
+  const { pin } = req.body || {};
+  if (typeof pin !== 'string' || !/^\d{4,12}$/.test(pin)) {
+    return res.status(400).json({ error: 'Ingresá un PIN de 4 a 12 números' });
+  }
+
+  const pinConfigurado = process.env.SECRETARY_PIN;
+  const secretoSesion = process.env.SECRETARY_SESSION_SECRET;
+  if (!pinConfigurado || !/^\d{4,12}$/.test(pinConfigurado) || !secretoSesion || secretoSesion.length < 32) {
+    console.error('Falta configurar SECRETARY_PIN o SECRETARY_SESSION_SECRET (mínimo 32 caracteres)');
+    return res.status(503).json({ error: 'El acceso de Secretaría aún no está configurado' });
+  }
+
+  const ahora = Date.now();
+  const claveIntento = req.ip || req.socket.remoteAddress || 'desconocido';
+  const intento = intentosLoginSecretaria.get(claveIntento);
+  if (intento && intento.bloqueadoHasta > ahora) {
+    return res.status(429).json({ error: 'Demasiados intentos. Esperá 15 minutos e intentá nuevamente.' });
+  }
+  if (intento && ahora - intento.inicio > 15 * 60 * 1000) {
+    intentosLoginSecretaria.delete(claveIntento);
+  }
+
+  const pinIngresado = Buffer.from(pin);
+  const pinValido = Buffer.from(pinConfigurado);
+  const coincide = pinIngresado.length === pinValido.length &&
+    crypto.timingSafeEqual(pinIngresado, pinValido);
+  if (!coincide) {
+    const intentosActuales = intentosLoginSecretaria.get(claveIntento) || { inicio: ahora, cantidad: 0 };
+    intentosActuales.cantidad += 1;
+    if (intentosActuales.cantidad >= 5) intentosActuales.bloqueadoHasta = ahora + 15 * 60 * 1000;
+    intentosLoginSecretaria.set(claveIntento, intentosActuales);
+    return res.status(401).json({ error: 'PIN incorrecto' });
+  }
+
+  intentosLoginSecretaria.delete(claveIntento);
+  const contenido = Buffer.from(JSON.stringify({
+    rol: 'secretaria',
+    expira: ahora + duracionSesionMs
+  })).toString('base64url');
+  configurarCookieSecretaria(res, `${contenido}.${crearFirmaSesion(contenido, secretoSesion)}`);
+  res.json({ rol: 'secretaria' });
+});
+
+app.get('/api/secretaria/sesion', requiereSesionSecretaria, (_req, res) => {
+  res.json({ rol: 'secretaria' });
+});
+
+app.post('/api/secretaria/logout', (req, res) => {
+  const segura = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'railway' || req.secure
+    ? '; Secure'
+    : '';
+  res.setHeader(
+    'Set-Cookie',
+    `${nombreCookieSecretaria}=; HttpOnly; SameSite=Strict; Path=/api/secretaria; Max-Age=0${segura}`
+  );
+  res.status(204).end();
+});
+
+app.get('/api/secretaria/pedidos', requiereSesionSecretaria, async (req, res) => {
+  const { fecha, repartidor } = req.query;
+  if (!validarFechaISO(fecha) || !repartidores.includes(repartidor)) {
+    return res.status(400).json({ error: 'Seleccioná una fecha y un repartidor válidos' });
+  }
+
+  try {
+    const result = await db.query(
+      `SELECT
+         p.id,
+         TO_CHAR(p.fecha_entrega, 'YYYY-MM-DD') AS fecha_entrega,
+         p.estado,
+         p.repartidor,
+         COALESCE(p.cliente_nombre, c.nombre) AS cliente_nombre,
+         COALESCE(detalles.items, '[]'::JSON) AS items,
+         detalles.total_pedido,
+         COALESCE(pagos.total_pagado, 0) AS total_pagado,
+         COALESCE(pagos.registros, '[]'::JSON) AS pagos
+       FROM pedidos p
+       LEFT JOIN clientes c ON c.id = p.cliente_id
+       LEFT JOIN LATERAL (
+         SELECT
+           JSON_AGG(JSON_BUILD_OBJECT(
+             'id', dp.id,
+             'producto_nombre', COALESCE(dp.producto_nombre, pr.nombre, 'Producto sin nombre'),
+             'cantidad', dp.cantidad,
+             'unidad', COALESCE(dp.unidad, ''),
+             'precio_unitario', dp.precio_unitario,
+             'subtotal', ROUND(dp.cantidad * dp.precio_unitario, 2)
+           ) ORDER BY dp.id) AS items,
+           CASE
+             WHEN COUNT(*) FILTER (WHERE dp.precio_unitario IS NULL) > 0 THEN NULL
+             ELSE SUM(ROUND(dp.cantidad * dp.precio_unitario, 2))
+           END AS total_pedido
+         FROM detalle_pedidos dp
+         LEFT JOIN productos pr ON pr.id = dp.producto_id
+         WHERE dp.pedido_id = p.id
+       ) detalles ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT
+           SUM(pp.monto) AS total_pagado,
+           JSON_AGG(JSON_BUILD_OBJECT(
+             'id', pp.id,
+             'medio', pp.medio,
+             'monto', pp.monto,
+             'registrado_en', pp.registrado_en,
+             'repartidor', pp.repartidor
+           ) ORDER BY pp.registrado_en, pp.id) AS registros
+         FROM pagos_pedidos pp
+         WHERE pp.pedido_id = p.id
+       ) pagos ON TRUE
+       WHERE p.fecha_entrega::DATE = $1::DATE
+         AND p.repartidor = $2
+         AND p.tipo_entrega = 'Reparto'
+       ORDER BY c.nombre ASC, p.id ASC`,
+      [fecha, repartidor]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al consultar pedidos de Secretaría:', error);
+    res.status(500).json({ error: 'No se pudieron consultar los pedidos para el reparto' });
+  }
+});
+
+app.put('/api/secretaria/pedidos/:id/precios', requiereSesionSecretaria, async (req, res) => {
+  const pedidoId = Number(req.params.id);
+  const { items } = req.body || {};
+  if (!Number.isInteger(pedidoId) || pedidoId <= 0) {
+    return res.status(400).json({ error: 'El número de pedido no es válido' });
+  }
+  if (
+    !Array.isArray(items) ||
+    items.length === 0 ||
+    items.some(item =>
+      !item ||
+      !Number.isInteger(Number(item.detalle_id)) ||
+      Number(item.detalle_id) <= 0 ||
+      !/^\d{1,10}(?:\.\d{1,2})?$/.test(String(item.precio_unitario))
+    ) ||
+    new Set(items.map(item => Number(item.detalle_id))).size !== items.length
+  ) {
+    return res.status(400).json({ error: 'Ingresá un precio válido para cada producto del pedido' });
+  }
+
+  let client;
+  try {
+    client = await db.pool.connect();
+    await client.query('BEGIN');
+    const pedido = await client.query(
+      `SELECT id FROM pedidos
+       WHERE id = $1 AND tipo_entrega = 'Reparto'
+       FOR UPDATE`,
+      [pedidoId]
+    );
+    if (pedido.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'No se encontró el pedido de reparto' });
+    }
+
+    const detalles = await client.query(
+      'SELECT id FROM detalle_pedidos WHERE pedido_id = $1 ORDER BY id',
+      [pedidoId]
+    );
+    const idsEnviados = items.map(item => Number(item.detalle_id)).sort((a, b) => a - b);
+    const idsExistentes = detalles.rows.map(item => item.id).sort((a, b) => a - b);
+    if (
+      idsEnviados.length !== idsExistentes.length ||
+      idsEnviados.some((id, index) => id !== idsExistentes[index])
+    ) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Los productos del pedido cambiaron. Actualizá la pantalla e intentá nuevamente' });
+    }
+
+    for (const item of items) {
+      await client.query(
+        'UPDATE detalle_pedidos SET precio_unitario = $1 WHERE id = $2 AND pedido_id = $3',
+        [item.precio_unitario, Number(item.detalle_id), pedidoId]
+      );
+    }
+    const totales = await client.query(
+      `SELECT
+         SUM(ROUND(cantidad * precio_unitario, 2)) AS total,
+         COUNT(*) FILTER (WHERE precio_unitario IS NULL) AS sin_precio
+       FROM detalle_pedidos
+       WHERE pedido_id = $1`,
+      [pedidoId]
+    );
+    const pagos = await client.query(
+      'SELECT COALESCE(SUM(monto), 0) AS total_pagado FROM pagos_pedidos WHERE pedido_id = $1',
+      [pedidoId]
+    );
+    if (Number(totales.rows[0].total) < Number(pagos.rows[0].total_pagado)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'El nuevo total no puede ser menor que lo ya cobrado' });
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      id: pedidoId,
+      total: Number(totales.rows[0].total || 0),
+      sin_precio: Number(totales.rows[0].sin_precio)
+    });
+  } catch (error) {
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('Error al deshacer precios de Secretaría:', rollbackError);
+      }
+    }
+    console.error('Error al guardar precios del pedido:', error);
+    res.status(500).json({ error: 'No se pudieron guardar los precios del pedido' });
+  } finally {
+    if (client) client.release();
+  }
+});
 
 // Acceso móvil de proveedores
 app.post('/api/proveedor/login', (req, res) => {
@@ -238,15 +502,100 @@ app.post('/api/proveedor/logout', (req, res) => {
 
 app.get('/api/proveedor/pedidos', requiereSesionProveedor, async (req, res) => {
   try {
-    const pedidos = await obtenerPedidos({
-      soloPendientes: true,
-      repartidor: req.repartidorAutenticado,
-      hastaFecha: obtenerFechaArgentina()
-    });
-    res.json(pedidos);
+    const result = await db.query(
+      `SELECT
+         p.id,
+         TO_CHAR(p.fecha_entrega, 'YYYY-MM-DD') AS fecha_entrega,
+         p.tipo_entrega,
+         p.estado,
+         p.repartidor,
+         COALESCE(p.cliente_nombre, c.nombre) AS cliente_nombre,
+         p.entregado_en,
+         COALESCE(detalles.items, '[]'::JSON) AS items,
+         detalles.total_pedido,
+         COALESCE(pagos.total_pagado, 0) AS total_pagado,
+         COALESCE(pagos.registros, '[]'::JSON) AS pagos
+       FROM pedidos p
+       LEFT JOIN clientes c ON c.id = p.cliente_id
+       LEFT JOIN LATERAL (
+         SELECT
+           JSON_AGG(JSON_BUILD_OBJECT(
+             'producto_nombre', COALESCE(dp.producto_nombre, pr.nombre, 'Producto sin nombre'),
+             'cantidad', dp.cantidad,
+             'unidad', COALESCE(dp.unidad, ''),
+             'precio_unitario', dp.precio_unitario,
+             'subtotal', ROUND(dp.cantidad * dp.precio_unitario, 2)
+           ) ORDER BY dp.id) AS items,
+           CASE
+             WHEN COUNT(*) FILTER (WHERE dp.precio_unitario IS NULL) > 0 THEN NULL
+             ELSE SUM(ROUND(dp.cantidad * dp.precio_unitario, 2))
+           END AS total_pedido
+         FROM detalle_pedidos dp
+         LEFT JOIN productos pr ON pr.id = dp.producto_id
+         WHERE dp.pedido_id = p.id
+       ) detalles ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT
+           SUM(pp.monto) AS total_pagado,
+           JSON_AGG(JSON_BUILD_OBJECT(
+             'medio', pp.medio,
+             'monto', pp.monto,
+             'registrado_en', pp.registrado_en
+           ) ORDER BY pp.registrado_en, pp.id) AS registros
+         FROM pagos_pedidos pp
+         WHERE pp.pedido_id = p.id
+       ) pagos ON TRUE
+       WHERE p.repartidor = $1
+         AND p.tipo_entrega = 'Reparto'
+         AND COALESCE(p.oculto_proveedor, FALSE) = FALSE
+         AND p.fecha_entrega::DATE <= $2::DATE
+         AND (
+           LOWER(COALESCE(p.estado, 'pendiente')) = 'pendiente'
+           OR (
+             LOWER(COALESCE(p.estado, 'pendiente')) = 'completado'
+             AND (
+               detalles.total_pedido IS NULL
+               OR detalles.total_pedido > COALESCE(pagos.total_pagado, 0)
+               OR p.entregado_en >= CURRENT_TIMESTAMP - INTERVAL '8 hours'
+               OR (p.entregado_en IS NULL AND p.fecha_entrega::DATE = $2::DATE)
+             )
+           )
+         )
+       ORDER BY p.fecha_entrega ASC, p.id ASC`,
+      [req.repartidorAutenticado, obtenerFechaArgentina()]
+    );
+    res.json(result.rows);
   } catch (error) {
     console.error('Error al obtener envíos del proveedor:', error);
     res.status(500).json({ error: 'Error al obtener tus envíos' });
+  }
+});
+
+app.patch('/api/proveedor/pedidos/:id/ocultar', requiereSesionProveedor, async (req, res) => {
+  const pedidoId = Number(req.params.id);
+  if (!Number.isInteger(pedidoId) || pedidoId <= 0) {
+    return res.status(400).json({ error: 'El número de pedido no es válido' });
+  }
+
+  try {
+    const result = await db.query(
+      `UPDATE pedidos
+       SET oculto_proveedor = TRUE
+       WHERE id = $1
+         AND repartidor = $2
+         AND tipo_entrega = 'Reparto'
+         AND LOWER(COALESCE(estado, 'pendiente')) = 'completado'
+         AND COALESCE(oculto_proveedor, FALSE) = FALSE
+       RETURNING id`,
+      [pedidoId, req.repartidorAutenticado]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'No se encontró un pedido entregado tuyo para quitar de Mis envíos' });
+    }
+    res.json({ id: result.rows[0].id, mensaje: 'Pedido quitado de Mis envíos; el historial se conserva' });
+  } catch (error) {
+    console.error('Error al ocultar pedido de Mis envíos:', error);
+    res.status(500).json({ error: 'No se pudo quitar el pedido de Mis envíos' });
   }
 });
 
@@ -259,7 +608,7 @@ app.patch('/api/proveedor/pedidos/:id/entregar', requiereSesionProveedor, async 
   try {
     const result = await db.query(
       `UPDATE pedidos
-       SET estado = 'Completado'
+       SET estado = 'Completado', entregado_en = CURRENT_TIMESTAMP
        WHERE id = $1
          AND repartidor = $2
          AND tipo_entrega = 'Reparto'
@@ -276,6 +625,95 @@ app.patch('/api/proveedor/pedidos/:id/entregar', requiereSesionProveedor, async 
   } catch (error) {
     console.error('Error al confirmar envío del proveedor:', error);
     res.status(500).json({ error: 'No se pudo confirmar el envío' });
+  }
+});
+
+app.post('/api/proveedor/pedidos/:id/pagos', requiereSesionProveedor, async (req, res) => {
+  const pedidoId = Number(req.params.id);
+  const { medio, monto } = req.body || {};
+  if (!Number.isInteger(pedidoId) || pedidoId <= 0) {
+    return res.status(400).json({ error: 'El número de pedido no es válido' });
+  }
+  if (
+    !['Efectivo', 'Mercado Pago'].includes(medio) ||
+    !/^\d{1,10}(?:\.\d{1,2})?$/.test(String(monto)) ||
+    Number(monto) <= 0
+  ) {
+    return res.status(400).json({ error: 'Ingresá un monto mayor a cero y un medio de pago válido' });
+  }
+
+  let client;
+  try {
+    client = await db.pool.connect();
+    await client.query('BEGIN');
+    const pedido = await client.query(
+      `SELECT p.id, p.estado
+       FROM pedidos p
+       WHERE p.id = $1
+         AND p.repartidor = $2
+         AND p.tipo_entrega = 'Reparto'
+         AND p.fecha_entrega::DATE <= $3::DATE
+       FOR UPDATE`,
+      [pedidoId, req.repartidorAutenticado, obtenerFechaArgentina()]
+    );
+    if (pedido.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'No se encontró un pedido tuyo para hoy o atrasado' });
+    }
+    if (String(pedido.rows[0].estado || '').toLowerCase() !== 'completado') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Confirmá la entrega antes de registrar el cobro' });
+    }
+
+    const totales = await client.query(
+      `SELECT
+         CASE
+           WHEN COUNT(*) FILTER (WHERE precio_unitario IS NULL) > 0 THEN NULL
+           ELSE SUM(ROUND(cantidad * precio_unitario, 2))
+         END AS total_pedido
+       FROM detalle_pedidos
+       WHERE pedido_id = $1`,
+      [pedidoId]
+    );
+    if (totales.rows[0].total_pedido === null) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'El pedido todavía no tiene todos sus precios cargados por Secretaría' });
+    }
+    const pagosActuales = await client.query(
+      'SELECT COALESCE(SUM(monto), 0) AS total_pagado FROM pagos_pedidos WHERE pedido_id = $1',
+      [pedidoId]
+    );
+    const saldo = Number(totales.rows[0].total_pedido) - Number(pagosActuales.rows[0].total_pagado);
+    if (Number(monto) > saldo) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'El cobro no puede superar el saldo pendiente del pedido' });
+    }
+
+    const result = await client.query(
+      `INSERT INTO pagos_pedidos (pedido_id, repartidor, medio, monto)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, medio, monto, registrado_en`,
+      [pedidoId, req.repartidorAutenticado, medio, monto]
+    );
+    await client.query('COMMIT');
+    res.status(201).json({
+      pago: result.rows[0],
+      total_pedido: Number(totales.rows[0].total_pedido),
+      total_pagado: Number(pagosActuales.rows[0].total_pagado) + Number(monto),
+      saldo_pendiente: saldo - Number(monto)
+    });
+  } catch (error) {
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('Error al deshacer el cobro:', rollbackError);
+      }
+    }
+    console.error('Error al registrar pago del repartidor:', error);
+    res.status(500).json({ error: 'No se pudo registrar el cobro' });
+  } finally {
+    if (client) client.release();
   }
 });
 
@@ -415,6 +853,22 @@ app.delete('/api/pedidos/:id', async (req, res) => {
   try {
     client = await db.pool.connect();
     await client.query('BEGIN');
+    const pedidoExistente = await client.query(
+      'SELECT id FROM pedidos WHERE id = $1 FOR UPDATE',
+      [pedidoId]
+    );
+    if (pedidoExistente.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'No se encontró el pedido' });
+    }
+    const pagosExistentes = await client.query(
+      'SELECT COUNT(*) AS cantidad FROM pagos_pedidos WHERE pedido_id = $1',
+      [pedidoId]
+    );
+    if (Number(pagosExistentes.rows[0].cantidad) > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'No se puede eliminar un pedido con cobros registrados' });
+    }
     await client.query('DELETE FROM detalle_pedidos WHERE pedido_id = $1', [pedidoId]);
     const result = await client.query('DELETE FROM pedidos WHERE id = $1 RETURNING id', [pedidoId]);
 

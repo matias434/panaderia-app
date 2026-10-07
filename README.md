@@ -51,9 +51,17 @@ La pantalla móvil está en `/proveedor.html`. Cada repartidor inicia sesión co
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-No usar los textos de ejemplo como PIN o secreto. La sesión dura 12 horas. El proveedor solo ve pedidos de reparto asignados a él cuya fecha de entrega sea hoy o anterior, y únicamente puede confirmar sus propios envíos pendientes.
+No usar los textos de ejemplo como PIN o secreto. La sesión dura 12 horas. El proveedor ve sus pedidos de reparto para hoy y atrasados, confirma entregas pendientes y registra cobros parciales solo en sus pedidos entregados y valorizados. Puede quitar manualmente de Mis envíos cualquier pedido propio ya entregado; el pedido y su historial de cobros se conservan para Secretaría. Los pedidos entregados y totalmente cobrados también dejan de mostrarse ocho horas después de la entrega. Los que tienen saldo o todavía no fueron valorizados siguen visibles hasta que se quiten manualmente.
 
-La autenticación de Secretaría todavía no está implementada: las pantallas y API actuales de pedidos no requieren inicio de sesión. Para una demostración pública, usar solo datos ficticios; antes de cargar datos reales o compartir el sistema en producción, agregar y probar el acceso de Secretaría.
+La pantalla de Secretaría `/secretaria.html` requiere `SECRETARY_PIN` (4 a 12 dígitos) y `SECRETARY_SESSION_SECRET` (secreto aleatorio de al menos 32 caracteres, distinto del secreto de proveedores). Configurar ambos en `.env` o como variables privadas del servicio de Railway. La sesión dura 12 horas. Secretaría asigna el precio manualmente a cada producto de cada pedido, para permitir precios distintos entre compradores. Los precios quedan guardados en el detalle del pedido. El repartidor solo ve sus pedidos, confirma la entrega y registra uno o más pagos parciales por efectivo o Mercado Pago. El saldo mostrado corresponde únicamente al pedido/reparto actual; no incluye deudas anteriores. Un pedido con pagos registrados no se puede eliminar.
+
+Las operaciones de carga de pedidos y eliminación en Recepción todavía no requieren una sesión administrativa. Usar solo datos ficticios para pruebas públicas y no operar cobros reales hasta que se agregue y pruebe autenticación de Secretaría/Administración para todas las acciones sensibles.
+
+Generar un secreto de sesión con:
+
+```sh
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
 
 ## Prueba en Railway
 
@@ -61,10 +69,10 @@ El proyecto incluye `railway.json`: Railway inicia con `npm start` y verifica `/
 
 1. En Railway, crear un proyecto desde el repositorio privado `matias434/panaderia-app` y agregar un servicio PostgreSQL.
 2. En el servicio de la aplicación, crear la variable `DATABASE_URL` como referencia a la variable `DATABASE_URL` del servicio PostgreSQL (`${{Postgres.DATABASE_URL}}`, usando el nombre real del servicio).
-3. Configurar `PROVIDER_PIN_RODRIGO`, `PROVIDER_PIN_ELSA`, `PROVIDER_PIN_MARCOS` y un `PROVIDER_SESSION_SECRET` aleatorio de al menos 32 caracteres como variables privadas del servicio.
-4. Generar un dominio público desde Networking y abrir `/` para Recepción o `/proveedor.html` para la pantalla del repartidor.
+3. Configurar `PROVIDER_PIN_RODRIGO`, `PROVIDER_PIN_ELSA`, `PROVIDER_PIN_MARCOS`, `PROVIDER_SESSION_SECRET`, `SECRETARY_PIN` y `SECRETARY_SESSION_SECRET` como variables privadas del servicio. Los secretos de proveedor y Secretaría deben ser distintos.
+4. Generar un dominio público desde Networking y abrir `/` para Recepción, `/proveedor.html` para el repartidor o `/secretaria.html` para Secretaría.
 
-El plan Free publicado por Railway incluye USD 1 de crédito de uso por mes; la prueba inicial publica USD 5 de crédito por 30 días. Verificar límites y consumo en Railway antes de dejar los servicios activos. Como la pantalla/API de Secretaría aún no tiene inicio de sesión, usar exclusivamente pedidos y datos ficticios durante las pruebas públicas.
+El plan Free publicado por Railway incluye USD 1 de crédito de uso por mes; la prueba inicial publica USD 5 de crédito por 30 días. Verificar límites y consumo en Railway antes de dejar los servicios activos. Aunque Secretaría y proveedores tienen inicio de sesión, las operaciones administrativas de Recepción todavía no están protegidas integralmente; usar exclusivamente pedidos y datos ficticios durante las pruebas públicas y no operar cobros reales hasta proteger esas acciones.
 
 ## Inicialización de la base
 

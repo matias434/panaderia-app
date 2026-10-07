@@ -45,7 +45,8 @@ const initSchema = async () => {
       producto_id INT REFERENCES productos(id) ON DELETE RESTRICT,
       producto_nombre VARCHAR(150),
       cantidad NUMERIC(8,2) NOT NULL,
-      unidad VARCHAR(30)
+      unidad VARCHAR(30),
+      precio_unitario NUMERIC(12,2)
     );
   `);
 
@@ -53,6 +54,9 @@ const initSchema = async () => {
   await db.query('ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS cliente_nombre VARCHAR(100)');
   await db.query('ALTER TABLE detalle_pedidos ADD COLUMN IF NOT EXISTS producto_nombre VARCHAR(150)');
   await db.query('ALTER TABLE detalle_pedidos ADD COLUMN IF NOT EXISTS unidad VARCHAR(30)');
+  await db.query('ALTER TABLE detalle_pedidos ADD COLUMN IF NOT EXISTS precio_unitario NUMERIC(12,2)');
+  await db.query('ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS entregado_en TIMESTAMP');
+  await db.query('ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS oculto_proveedor BOOLEAN NOT NULL DEFAULT FALSE');
   await db.query("ALTER TABLE productos ADD COLUMN IF NOT EXISTS categoria VARCHAR(30) NOT NULL DEFAULT 'Otros'");
   await db.query("ALTER TABLE productos ADD COLUMN IF NOT EXISTS subcategoria VARCHAR(30) NOT NULL DEFAULT 'General'");
   await db.query('ALTER TABLE productos ADD COLUMN IF NOT EXISTS unidad VARCHAR(50)');
@@ -61,6 +65,20 @@ const initSchema = async () => {
     CREATE UNIQUE INDEX IF NOT EXISTS productos_catalogo_unico
     ON productos (categoria, subcategoria, nombre, unidad)
     WHERE categoria IN ('Mayorista', 'Minorista')
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS pagos_pedidos (
+      id SERIAL PRIMARY KEY,
+      pedido_id INT NOT NULL REFERENCES pedidos(id) ON DELETE CASCADE,
+      repartidor VARCHAR(20) NOT NULL,
+      medio VARCHAR(30) NOT NULL CHECK (medio IN ('Efectivo', 'Mercado Pago')),
+      monto NUMERIC(12,2) NOT NULL CHECK (monto > 0),
+      registrado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS pagos_pedidos_pedido_fecha
+    ON pagos_pedidos (pedido_id, registrado_en)
   `);
 
   console.log('✅ Tablas creadas exitosamente.');
