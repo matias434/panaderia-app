@@ -90,6 +90,10 @@
     </section>
 
     <section id="panel-envios" class="panel" hidden>
+      <label for="fecha-envios">Filtrar por fecha de entrega</label>
+      <input id="fecha-envios" type="date" aria-describedby="ayuda-fecha-envios">
+      <p id="ayuda-fecha-envios" class="secundario">Sin fecha seleccionada se muestran los envíos de hoy y atrasados. Al elegir una fecha, se muestran los pedidos de ese día.</p>
+      <button id="boton-limpiar-fecha" class="salir" type="button">Ver hoy y atrasados</button>
       <button id="boton-salir" class="salir" type="button">Cerrar sesión</button>
       <div id="listado-envios" aria-live="polite"></div>
     </section>
@@ -102,7 +106,14 @@
     const listadoEnvios = document.getElementById('listado-envios');
     const saludo = document.getElementById('saludo');
     const mensajeAcceso = document.getElementById('mensaje-acceso');
+    const fechaEnvios = document.getElementById('fecha-envios');
     let temporizadorActualizacion;
+
+    fechaEnvios.addEventListener('change', cargarEnvios);
+    document.getElementById('boton-limpiar-fecha').addEventListener('click', () => {
+      fechaEnvios.value = '';
+      cargarEnvios();
+    });
 
     formularioAcceso.addEventListener('submit', async evento => {
       evento.preventDefault();
@@ -143,7 +154,7 @@
 
     async function mostrarEnvios(repartidor) {
       document.getElementById('pin').value = '';
-      saludo.textContent = `Hola, ${repartidor}. Se muestran tus envíos de hoy y atrasados; los entregados y cobrados se ocultan después de 8 horas.`;
+      saludo.textContent = `Hola, ${repartidor}. Consultá tus envíos por fecha. Sin filtro se muestran los de hoy y atrasados; los entregados y cobrados se ocultan después de 8 horas.`;
       panelAcceso.hidden = true;
       panelEnvios.hidden = false;
       await cargarEnvios();
@@ -153,7 +164,10 @@
 
     async function cargarEnvios() {
       try {
-        const respuesta = await fetch('/api/proveedor/pedidos');
+        const parametros = new URLSearchParams();
+        if (fechaEnvios.value) parametros.set('fecha', fechaEnvios.value);
+        const consulta = parametros.toString();
+        const respuesta = await fetch(`/api/proveedor/pedidos${consulta ? `?${consulta}` : ''}`);
         if (respuesta.status === 401) {
           cerrarSesion(false);
           return;
@@ -163,7 +177,9 @@
         listadoEnvios.innerHTML = '';
 
         if (pedidos.length === 0) {
-          listadoEnvios.innerHTML = '<p>No tenés entregas ni cobros pendientes para hoy.</p>';
+          listadoEnvios.innerHTML = fechaEnvios.value
+            ? '<p>No hay pedidos tuyos para la fecha seleccionada.</p>'
+            : '<p>No tenés entregas ni cobros pendientes para hoy.</p>';
           return;
         }
 
@@ -182,6 +198,7 @@
       const fechaEntrega = String(pedido.fecha_entrega);
       const esAtrasado = fechaEntrega < hoy;
       const entregado = String(pedido.estado || '').toLowerCase() === 'completado';
+      const puedeConfirmarEntrega = !entregado && fechaEntrega <= hoy;
       const claseEstado = entregado ? 'entregado' : esAtrasado ? 'atrasado' : 'pendiente';
       const etiquetaEstado = entregado ? '✓ ENTREGADO' : esAtrasado ? '⚠ ATRASADO' : '● PENDIENTE';
       tarjeta.className = `envio ${claseEstado}`;
@@ -212,7 +229,9 @@
         </div>
         ${entregado
           ? '<p><strong>Entrega:</strong> Confirmada</p>'
-          : '<button class="principal" data-action="entregar" type="button">Confirmar entrega realizada</button>'
+          : puedeConfirmarEntrega
+            ? '<button class="principal" data-action="entregar" type="button">Confirmar entrega realizada</button>'
+            : '<p class="secundario">La entrega se podrá confirmar a partir de la fecha indicada.</p>'
         }
         ${entregado
           ? '<button class="quitar-pedido" data-action="ocultar" type="button">Quitar de Mis envíos</button>'

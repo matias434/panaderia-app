@@ -501,6 +501,11 @@ app.post('/api/proveedor/logout', (req, res) => {
 });
 
 app.get('/api/proveedor/pedidos', requiereSesionProveedor, async (req, res) => {
+  const fechaSeleccionada = req.query.fecha;
+  if (fechaSeleccionada !== undefined && !validarFechaISO(fechaSeleccionada)) {
+    return res.status(400).json({ error: 'La fecha debe tener el formato AAAA-MM-DD' });
+  }
+
   try {
     const result = await db.query(
       `SELECT
@@ -548,9 +553,13 @@ app.get('/api/proveedor/pedidos', requiereSesionProveedor, async (req, res) => {
        WHERE p.repartidor = $1
          AND p.tipo_entrega = 'Reparto'
          AND COALESCE(p.oculto_proveedor, FALSE) = FALSE
-         AND p.fecha_entrega::DATE <= $2::DATE
          AND (
-           LOWER(COALESCE(p.estado, 'pendiente')) = 'pendiente'
+           ($2::DATE IS NULL AND p.fecha_entrega::DATE <= $3::DATE)
+           OR ($2::DATE IS NOT NULL AND p.fecha_entrega::DATE = $2::DATE)
+         )
+         AND (
+           $2::DATE IS NOT NULL
+           OR LOWER(COALESCE(p.estado, 'pendiente')) = 'pendiente'
            OR (
              LOWER(COALESCE(p.estado, 'pendiente')) = 'completado'
              AND (
@@ -562,7 +571,7 @@ app.get('/api/proveedor/pedidos', requiereSesionProveedor, async (req, res) => {
            )
          )
        ORDER BY p.fecha_entrega ASC, p.id ASC`,
-      [req.repartidorAutenticado, obtenerFechaArgentina()]
+      [req.repartidorAutenticado, fechaSeleccionada || null, obtenerFechaArgentina()]
     );
     res.json(result.rows);
   } catch (error) {
