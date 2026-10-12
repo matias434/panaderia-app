@@ -31,6 +31,55 @@
     .btn-blue { background-color: #007bff; }
     .btn-secondary { background-color: #6c757d; }
 
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 1000;
+    }
+    .modal-backdrop[hidden] { display: none; }
+    .modal-card {
+      width: min(520px, 100%);
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.2);
+      position: relative;
+    }
+    .modal-close {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      border: none;
+      background: transparent;
+      font-size: 26px;
+      line-height: 1;
+      cursor: pointer;
+      color: #555;
+    }
+    .modal-card form {
+      display: grid;
+      gap: 10px;
+    }
+    .modal-card input,
+    .modal-card select {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px;
+      min-height: 42px;
+    }
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
     .comanda-ticket {
       border: 2px dashed #000;
       padding: 15px;
@@ -155,11 +204,52 @@
       <label>Productos del pedido (cantidad, unidad y producto):</label>
       <div id="items-pedido"></div>
       <p id="error-catalogo" role="alert" hidden></p>
-      <button type="button" id="agregar-producto" class="btn btn-blue" style="margin: 8px 0 16px;">+ Agregar producto</button>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin: 8px 0 16px;">
+        <button type="button" id="agregar-producto" class="btn btn-blue">+ Agregar producto</button>
+        <button type="button" id="nuevo-producto" class="btn btn-secondary">Dar alta producto</button>
+      </div>
       <br>
 
       <button type="submit" class="btn">Guardar Pedido</button>
     </form>
+  </div>
+
+  <div id="modal-producto" class="modal-backdrop" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="titulo-modal-producto">
+      <button type="button" class="modal-close" aria-label="Cerrar modal" id="cerrar-modal-producto">×</button>
+      <h3 id="titulo-modal-producto">Alta de producto</h3>
+      <form id="form-producto-nuevo">
+        <label>
+          Nombre del producto
+          <input type="text" id="nuevo-producto-nombre" maxlength="100" required>
+        </label>
+
+        <label>
+          Categoría
+          <select id="nuevo-producto-categoria" required>
+            <option value="Mayorista">Mayorista</option>
+            <option value="Minorista">Minorista</option>
+          </select>
+        </label>
+
+        <label>
+          Subcategoría
+          <select id="nuevo-producto-subcategoria" required>
+            <option value="General">General</option>
+          </select>
+        </label>
+
+        <label>
+          Unidad
+          <input type="text" id="nuevo-producto-unidad" maxlength="50" placeholder="kg, unidad, caja, etc." required>
+        </label>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="cancelar-producto">Cancelar</button>
+          <button type="submit" class="btn">Guardar producto</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <section class="card no-print pedidos-pendientes-panel" aria-label="Pedidos pendientes">
@@ -205,23 +295,22 @@
       window.location.href = `/pedidos.html?vista=productos&fecha=${encodeURIComponent(fecha)}`;
     }
 
-    function agregarFilaProducto() {
-      const fila = document.createElement('div');
-      fila.className = 'item-pedido';
-      fila.innerHTML = `
-        <input class="cantidad-producto" type="number" inputmode="decimal" placeholder="Cant." min="0.01" step="any" required aria-label="Cantidad">
-        <input class="unidad-producto" type="text" placeholder="Unidad" readonly required aria-label="Unidad">
-        <select class="producto-select" required aria-label="Producto">
-          <option value="">-- Seleccionar producto --</option>
-        </select>
-        <button type="button" class="btn btn-secondary quitar-producto" aria-label="Quitar producto">Quitar</button>
-      `;
-      const selector = fila.querySelector('.producto-select');
+    function cargarOpcionesProductos(selector, idSeleccionado = '') {
       const grupos = [
         ['Mayorista', 'General', 'Mayorista'],
         ['Minorista', 'Dulce', 'Minorista — Dulce'],
         ['Minorista', 'Salado', 'Minorista — Salado']
       ];
+      const clavesGrupos = new Set(grupos.map(([categoria, subcategoria]) => `${categoria}|${subcategoria}`));
+      productosCatalogo.forEach(producto => {
+        const clave = `${producto.categoria}|${producto.subcategoria}`;
+        if (!clavesGrupos.has(clave)) {
+          clavesGrupos.add(clave);
+          grupos.push([producto.categoria, producto.subcategoria, `${producto.categoria} — ${producto.subcategoria}`]);
+        }
+      });
+
+      selector.innerHTML = '<option value="">-- Seleccionar producto --</option>';
       grupos.forEach(([categoria, subcategoria, etiqueta]) => {
         const productosGrupo = productosCatalogo.filter(producto =>
           producto.categoria === categoria && producto.subcategoria === subcategoria
@@ -237,6 +326,37 @@
         });
         selector.appendChild(grupo);
       });
+      if (idSeleccionado && Array.from(selector.options).some(opcion => opcion.value === String(idSeleccionado))) {
+        selector.value = String(idSeleccionado);
+      }
+    }
+
+    function actualizarSelectoresProductos(idSeleccionado = '') {
+      let productoNuevoSeleccionado = false;
+      document.querySelectorAll('.producto-select').forEach(selector => {
+        const valorAnterior = selector.value;
+        const seleccionarNuevo = !valorAnterior && idSeleccionado && !productoNuevoSeleccionado
+          ? idSeleccionado
+          : valorAnterior;
+        cargarOpcionesProductos(selector, seleccionarNuevo);
+        if (selector.value === String(idSeleccionado)) productoNuevoSeleccionado = true;
+        selector.dispatchEvent(new Event('change'));
+      });
+    }
+
+    function agregarFilaProducto() {
+      const fila = document.createElement('div');
+      fila.className = 'item-pedido';
+      fila.innerHTML = `
+        <input class="cantidad-producto" type="number" inputmode="decimal" placeholder="Cant." min="0.01" step="any" required aria-label="Cantidad">
+        <input class="unidad-producto" type="text" placeholder="Unidad" readonly required aria-label="Unidad">
+        <select class="producto-select" required aria-label="Producto">
+          <option value="">-- Seleccionar producto --</option>
+        </select>
+        <button type="button" class="btn btn-secondary quitar-producto" aria-label="Quitar producto">Quitar</button>
+      `;
+      const selector = fila.querySelector('.producto-select');
+      cargarOpcionesProductos(selector);
       selector.addEventListener('change', () => {
         const producto = productosCatalogo.find(item => String(item.id) === selector.value);
         fila.querySelector('.unidad-producto').value = producto ? producto.unidad : '';
@@ -273,6 +393,79 @@
 
     document.getElementById('tipo_entrega').addEventListener('change', actualizarTipoEntrega);
 
+    async function cargarCatalogoProductos() {
+      const res = await fetch('/api/productos', { cache: 'no-store' });
+      if (!res.ok) throw new Error('No se pudo cargar el catálogo de productos');
+      productosCatalogo = await res.json();
+      if (!Array.isArray(productosCatalogo) || productosCatalogo.length === 0) {
+        throw new Error('El catálogo de productos está vacío');
+      }
+    }
+
+    function abrirModalProducto() {
+      const modal = document.getElementById('modal-producto');
+      modal.hidden = false;
+      document.getElementById('nuevo-producto-nombre').focus();
+    }
+
+    function cerrarModalProducto() {
+      const modal = document.getElementById('modal-producto');
+      modal.hidden = true;
+      document.getElementById('form-producto-nuevo').reset();
+      actualizarSubcategoriasProducto();
+    }
+
+    document.getElementById('nuevo-producto').addEventListener('click', abrirModalProducto);
+    document.getElementById('cerrar-modal-producto').addEventListener('click', cerrarModalProducto);
+    document.getElementById('cancelar-producto').addEventListener('click', cerrarModalProducto);
+    document.getElementById('modal-producto').addEventListener('click', event => {
+      if (event.target.id === 'modal-producto') cerrarModalProducto();
+    });
+
+    function actualizarSubcategoriasProducto() {
+      const categoria = document.getElementById('nuevo-producto-categoria').value;
+      const subcategoria = document.getElementById('nuevo-producto-subcategoria');
+      const opciones = categoria === 'Mayorista'
+        ? [['General', 'General']]
+        : [['Dulce', 'Dulce'], ['Salado', 'Salado']];
+      subcategoria.innerHTML = opciones
+        .map(([valor, etiqueta]) => `<option value="${valor}">${etiqueta}</option>`)
+        .join('');
+    }
+
+    document.getElementById('nuevo-producto-categoria').addEventListener('change', actualizarSubcategoriasProducto);
+
+    document.getElementById('form-producto-nuevo').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const nombre = document.getElementById('nuevo-producto-nombre').value.trim();
+      const categoria = document.getElementById('nuevo-producto-categoria').value;
+      const subcategoria = document.getElementById('nuevo-producto-subcategoria').value;
+      const unidad = document.getElementById('nuevo-producto-unidad').value.trim();
+
+      if (!nombre || !unidad) {
+        alert('Completá nombre y unidad del producto');
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/productos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nombre, categoria, subcategoria, unidad })
+        });
+        const resultado = await response.json();
+        if (!response.ok) throw new Error(resultado.error || 'No se pudo guardar el producto');
+
+        await cargarCatalogoProductos();
+        actualizarSelectoresProductos(resultado.id);
+        cerrarModalProducto();
+        alert(`✅ Producto registrado: ${resultado.nombre || nombre}`);
+      } catch (error) {
+        console.error('Error al crear producto:', error);
+        alert(`❌ ${error.message}`);
+      }
+    });
+
     // Inicializar desplegables
     async function init() {
       try {
@@ -291,6 +484,7 @@
         selectC.innerHTML = '<option value="">-- Seleccionar Cliente --</option>' + 
           clientes.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
 
+        actualizarSubcategoriasProducto();
         agregarFilaProducto();
 
         cargarPedidos();

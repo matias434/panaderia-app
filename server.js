@@ -58,6 +58,50 @@ app.get('/api/productos', async (req, res) => {
   }
 });
 
+app.post('/api/productos', async (req, res) => {
+  const { nombre, categoria, subcategoria, unidad } = req.body || {};
+  const nombreNormalizado = typeof nombre === 'string' ? nombre.trim() : '';
+  const categoriaNormalizada = typeof categoria === 'string' ? categoria.trim() : '';
+  const subcategoriaNormalizada = typeof subcategoria === 'string' ? subcategoria.trim() : '';
+  const unidadNormalizada = typeof unidad === 'string' ? unidad.trim() : '';
+
+  if (!nombreNormalizado) {
+    return res.status(400).json({ error: 'Ingresá el nombre del producto' });
+  }
+  if (!['Mayorista', 'Minorista'].includes(categoriaNormalizada)) {
+    return res.status(400).json({ error: 'La categoría del producto no es válida' });
+  }
+  const subcategoriasValidas = categoriaNormalizada === 'Mayorista' ? ['General'] : ['Dulce', 'Salado'];
+  if (!subcategoriasValidas.includes(subcategoriaNormalizada)) {
+    return res.status(400).json({ error: 'La subcategoría del producto no es válida' });
+  }
+  if (!unidadNormalizada) {
+    return res.status(400).json({ error: 'Ingresá la unidad del producto' });
+  }
+
+  try {
+    const result = await db.query(
+      `INSERT INTO productos (nombre, precio_unitario, categoria, subcategoria, unidad, activo)
+       VALUES ($1, 0, $2, $3, $4, TRUE)
+       ON CONFLICT (categoria, subcategoria, nombre, unidad)
+       WHERE categoria IN ('Mayorista', 'Minorista')
+       DO UPDATE SET activo = TRUE
+       RETURNING id, nombre, categoria, subcategoria, unidad`,
+      [nombreNormalizado, categoriaNormalizada, subcategoriaNormalizada, unidadNormalizada]
+    );
+
+    const productoCreado = result.rows[0];
+    const fueNuevo = result.rowCount > 0 && productoCreado && productoCreado.id;
+    res.status(201).json({
+      ...productoCreado,
+      mensaje: fueNuevo ? 'Producto creado correctamente' : 'Producto ya existía y se reactivó en el catálogo'
+    });
+  } catch (error) {
+    console.error('Error al crear producto:', error);
+    res.status(500).json({ error: 'No se pudo crear el producto' });
+  }
+});
+
 async function obtenerPedidos({ fecha, soloPendientes = false, repartidor, hastaFecha }) {
   const filtros = [];
   const parametros = [];

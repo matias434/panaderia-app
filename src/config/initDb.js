@@ -83,7 +83,27 @@ const initSchema = async () => {
 
   console.log('✅ Tablas creadas exitosamente.');
 
-  await db.query("UPDATE productos SET activo = FALSE WHERE categoria IN ('Mayorista', 'Minorista')");
+  const parametrosCatalogo = [
+    catalogoProductos.map(producto => producto.nombre),
+    catalogoProductos.map(producto => producto.categoria),
+    catalogoProductos.map(producto => producto.subcategoria),
+    catalogoProductos.map(producto => producto.unidad)
+  ];
+  await db.query(
+    `UPDATE productos AS p
+     SET activo = TRUE
+     WHERE p.categoria IN ('Mayorista', 'Minorista')
+       AND NOT EXISTS (
+         SELECT 1
+         FROM UNNEST($1::VARCHAR[], $2::VARCHAR[], $3::VARCHAR[], $4::VARCHAR[])
+           AS catalogo(nombre, categoria, subcategoria, unidad)
+         WHERE p.nombre = catalogo.nombre
+           AND p.categoria = catalogo.categoria
+           AND p.subcategoria = catalogo.subcategoria
+           AND p.unidad = catalogo.unidad
+       )`,
+    parametrosCatalogo
+  );
   await db.query(
     `INSERT INTO productos (nombre, precio_unitario, categoria, subcategoria, unidad)
      SELECT catalogo.nombre, 0, catalogo.categoria, catalogo.subcategoria, catalogo.unidad
@@ -92,12 +112,7 @@ const initSchema = async () => {
      ON CONFLICT (categoria, subcategoria, nombre, unidad)
        WHERE categoria IN ('Mayorista', 'Minorista')
      DO UPDATE SET activo = TRUE`,
-    [
-      catalogoProductos.map(producto => producto.nombre),
-      catalogoProductos.map(producto => producto.categoria),
-      catalogoProductos.map(producto => producto.subcategoria),
-      catalogoProductos.map(producto => producto.unidad)
-    ]
+    parametrosCatalogo
   );
 
   // Cargar datos de prueba si las tablas están vacías
