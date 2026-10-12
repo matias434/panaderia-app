@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#6b321d">
+  <title>Crear pedido - Panadería</title>
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #30251f;
+      background: #f6f3ef;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 16px; }
+    main { width: min(100%, 620px); margin: 0 auto; }
+    header, .panel {
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 2px 10px #38291a12;
+    }
+    header, .panel { padding: 18px; margin-bottom: 14px; }
+    h1 { margin: 0; font-size: 1.5rem; }
+    h2 { margin: 0 0 12px; font-size: 1.15rem; }
+    p { line-height: 1.45; }
+    label { display: block; margin: 12px 0 6px; font-weight: 650; }
+    select, input, button {
+      width: 100%;
+      min-height: 46px;
+      border-radius: 9px;
+      font: inherit;
+    }
+    select, input { padding: 10px 12px; border: 1px solid #c8bdb5; background: #fff; }
+    button { border: 0; padding: 12px 16px; font-weight: 700; cursor: pointer; }
+    button:disabled { cursor: wait; opacity: .65; }
+    .principal { margin-top: 16px; color: #fff; background: #26733d; }
+    .secundario { color: #58311f; background: #f0e8e2; }
+    .catalogo { color: #fff; background: #1769aa; margin-top: 12px; }
+    .acciones { display: grid; gap: 10px; margin-top: 14px; }
+    .item-pedido {
+      margin: 8px 0;
+    }
+    .item-pedido-controles {
+      display: grid;
+      grid-template-columns: 85px 105px minmax(0, 1fr) 84px;
+      gap: 8px;
+    }
+    .descripcion-producto {
+      width: 100%;
+      min-height: 64px;
+      margin-top: 8px;
+      padding: 8px 12px;
+      font: inherit;
+      resize: vertical;
+    }
+    .quitar-producto { color: #58311f; background: #f0e8e2; padding: 8px; }
+    .error { color: #9f1d16; font-weight: 650; }
+    .secundario-texto { color: #6a5d55; font-size: .92rem; }
+    dialog {
+      width: min(520px, calc(100% - 24px));
+      border: 0;
+      border-radius: 14px;
+      padding: 22px;
+      box-shadow: 0 12px 36px #0004;
+    }
+    dialog::backdrop { background: #0007; }
+    dialog form { display: grid; gap: 10px; }
+    dialog menu { display: flex; gap: 10px; justify-content: flex-end; padding: 0; margin: 10px 0 0; }
+    dialog menu button { width: auto; }
+    [hidden] { display: none !important; }
+    @media (max-width: 520px) {
+      body { padding: 10px; }
+      header, .panel { padding: 14px; }
+      .item-pedido-controles { grid-template-columns: 76px 86px minmax(0, 1fr); }
+      .item-pedido-controles .quitar-producto { grid-column: 1 / -1; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>📝 Crear pedido</h1>
+      <p id="estado-pagina" class="secundario-texto" role="status">Verificando sesión…</p>
+      <a href="/proveedor.html">← Volver a Mis envíos</a>
+    </header>
+
+    <section id="panel-pedido" class="panel" hidden>
+      <h2>Pedido para reparto</h2>
+      <p id="asignacion-proveedor" class="secundario-texto"></p>
+      <form id="form-pedido" hidden>
+        <label for="cliente_id">Revendedor</label>
+        <select id="cliente_id" required></select>
+
+        <label for="fecha_entrega">Fecha de entrega</label>
+        <input type="date" id="fecha_entrega" required>
+
+        <label>Productos del pedido (cantidad, unidad y producto)</label>
+        <div id="items-pedido"></div>
+        <p id="error-catalogo" class="error" role="alert" hidden></p>
+
+        <button type="button" id="agregar-producto" class="catalogo">+ Agregar producto</button>
+        <button type="button" id="nuevo-producto" class="secundario">Dar alta producto</button>
+
+        <div class="acciones">
+          <button type="submit" id="guardar-pedido" class="principal">Guardar pedido</button>
+          <button type="button" id="volver-proveedor" class="secundario">Cancelar y volver</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <dialog id="modal-producto">
+    <h2>Alta de producto</h2>
+    <form id="form-producto-nuevo">
+      <label for="nuevo-producto-nombre">Nombre del producto</label>
+      <input type="text" id="nuevo-producto-nombre" maxlength="100" required>
+
+      <label for="nuevo-producto-categoria">Categoría</label>
+      <select id="nuevo-producto-categoria" required>
+        <option value="Mayorista">Mayorista</option>
+        <option value="Minorista">Minorista</option>
+      </select>
+
+      <label for="nuevo-producto-subcategoria">Subcategoría</label>
+      <select id="nuevo-producto-subcategoria" required></select>
+
+      <label for="nuevo-producto-unidad">Unidad</label>
+      <input type="text" id="nuevo-producto-unidad" maxlength="50" placeholder="kg, unidad, caja, etc." required>
+
+      <menu>
+        <button type="button" id="cancelar-producto" class="secundario">Cancelar</button>
+        <button type="submit" id="guardar-producto" class="principal">Guardar producto</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <script>
+    const estadoPagina = document.getElementById('estado-pagina');
+    const formularioPedido = document.getElementById('form-pedido');
+    const panelPedido = document.getElementById('panel-pedido');
+    const selectCliente = document.getElementById('cliente_id');
+    const listaItems = document.getElementById('items-pedido');
+    const modalProducto = document.getElementById('modal-producto');
+    let productosCatalogo = [];
+    let repartidorAutenticado = '';
+
+    function obtenerFechaLocalArgentina() {
+      const partes = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).formatToParts(new Date());
+      const valores = Object.fromEntries(partes.map(parte => [parte.type, parte.value]));
+      return `${valores.year}-${valores.month}-${valores.day}`;
+    }
+
+    function cargarOpcionesProductos(selector, idSeleccionado = '') {
+      const grupos = [
+        ['Mayorista', 'General', 'Mayorista'],
+        ['Minorista', 'Dulce', 'Minorista — Dulce'],
+        ['Minorista', 'Salado', 'Minorista — Salado']
+      ];
+      const claves = new Set(grupos.map(([categoria, subcategoria]) => `${categoria}|${subcategoria}`));
+      productosCatalogo.forEach(producto => {
+        const clave = `${producto.categoria}|${producto.subcategoria}`;
+        if (!claves.has(clave)) {
+          claves.add(clave);
+          grupos.push([producto.categoria, producto.subcategoria, `${producto.categoria} — ${producto.subcategoria}`]);
+        }
+      });
+
+      selector.innerHTML = '<option value="">-- Seleccionar producto --</option>';
+      grupos.forEach(([categoria, subcategoria, etiqueta]) => {
+        const productosGrupo = productosCatalogo.filter(producto =>
+          producto.categoria === categoria && producto.subcategoria === subcategoria
+        );
+        if (productosGrupo.length === 0) return;
+        const grupo = document.createElement('optgroup');
+        grupo.label = etiqueta;
+        productosGrupo.forEach(producto => {
+          const opcion = document.createElement('option');
+          opcion.value = producto.id;
+          opcion.textContent = `${producto.nombre} — ${producto.unidad}`;
+          grupo.appendChild(opcion);
+        });
+        selector.appendChild(grupo);
+      });
+      if (idSeleccionado && Array.from(selector.options).some(opcion => opcion.value === String(idSeleccionado))) {
+        selector.value = String(idSeleccionado);
+      }
+    }
+
+    function refrescarSelectores(idProductoNuevo = '') {
+      let nuevoSeleccionado = false;
+      document.querySelectorAll('.producto-select').forEach(selector => {
+        const valorAnterior = selector.value;
+        const idASeleccionar = !valorAnterior && idProductoNuevo && !nuevoSeleccionado
+          ? idProductoNuevo
+          : valorAnterior;
+        cargarOpcionesProductos(selector, idASeleccionar);
+        if (selector.value === String(idProductoNuevo)) nuevoSeleccionado = true;
+        selector.dispatchEvent(new Event('change'));
+      });
+    }
+
+    function agregarFilaProducto() {
+      const fila = document.createElement('div');
+      fila.className = 'item-pedido';
+      fila.innerHTML = `
+        <div class="item-pedido-controles">
+          <input class="cantidad-producto" type="number" inputmode="decimal" placeholder="Cant." min="0.01" step="any" required aria-label="Cantidad">
+          <input class="unidad-producto" type="text" placeholder="Unidad" readonly required aria-label="Unidad">
+          <select class="producto-select" required aria-label="Producto"></select>
+          <button type="button" class="quitar-producto" aria-label="Quitar producto">Quitar</button>
+        </div>
+        <label class="descripcion-label" hidden>
+          Descripción opcional para cocina
+          <textarea class="descripcion-producto" maxlength="500" rows="2" placeholder="Ej.: más dorado"></textarea>
+        </label>
+      `;
+      const selector = fila.querySelector('.producto-select');
+      cargarOpcionesProductos(selector);
+      selector.addEventListener('change', () => {
+        const productoAnterior = selector.dataset.productoAnterior || '';
+        if (productoAnterior && productoAnterior !== selector.value) {
+          fila.querySelector('.descripcion-producto').value = '';
+        }
+        selector.dataset.productoAnterior = selector.value;
+        fila.querySelector('.descripcion-label').hidden = !selector.value;
+        const producto = productosCatalogo.find(item => String(item.id) === selector.value);
+        fila.querySelector('.unidad-producto').value = producto ? producto.unidad : '';
+      });
+      const campos = Array.from(fila.querySelectorAll('input, select'));
+      campos.forEach((campo, indice) => {
+        campo.addEventListener('keydown', evento => {
+          if (evento.key !== 'Enter') return;
+          evento.preventDefault();
+          if (indice < campos.length - 1) campos[indice + 1].focus();
+          else agregarFilaProducto().querySelector('.cantidad-producto').focus();
+        });
+      });
+      fila.querySelector('.quitar-producto').addEventListener('click', () => {
+        if (document.querySelectorAll('.item-pedido').length > 1) fila.remove();
+      });
+      listaItems.appendChild(fila);
+      return fila;
+    }
+
+    async function leerRespuesta(respuesta, mensajeError) {
+      const resultado = await respuesta.json();
+      if (respuesta.status === 401) {
+        estadoPagina.textContent = 'La sesión venció. Ingresá nuevamente desde Proveedor.';
+        estadoPagina.className = 'error';
+        panelPedido.hidden = true;
+        throw new Error(resultado.error || 'La sesión venció');
+      }
+      if (!respuesta.ok) throw new Error(resultado.error || mensajeError);
+      return resultado;
+    }
+
+    async function iniciar() {
+      try {
+        const sesionRespuesta = await fetch('/api/proveedor/sesion', { cache: 'no-store' });
+        if (sesionRespuesta.status === 401) {
+          estadoPagina.textContent = 'Primero iniciá sesión desde la pantalla de Proveedor para crear un pedido.';
+          return;
+        }
+        if (!sesionRespuesta.ok) throw new Error('No se pudo verificar la sesión del proveedor');
+        const sesion = await sesionRespuesta.json();
+        repartidorAutenticado = sesion.repartidor;
+        document.getElementById('asignacion-proveedor').textContent =
+          `Este pedido quedará asignado a ${repartidorAutenticado}.`;
+
+        const [respuestaClientes, respuestaProductos] = await Promise.all([
+          fetch('/api/clientes', { cache: 'no-store' }),
+          fetch('/api/productos', { cache: 'no-store' })
+        ]);
+        if (!respuestaClientes.ok) throw new Error('No se pudieron cargar los revendedores');
+        if (!respuestaProductos.ok) throw new Error('No se pudo cargar el catálogo de productos');
+        const [clientes, productos] = await Promise.all([
+          respuestaClientes.json(),
+          respuestaProductos.json()
+        ]);
+        if (!Array.isArray(clientes) || clientes.length === 0) throw new Error('No hay revendedores cargados');
+        if (!Array.isArray(productos)) throw new Error('El catálogo de productos tiene un formato incorrecto');
+        productosCatalogo = productos;
+
+        selectCliente.innerHTML = '<option value="">-- Seleccionar revendedor --</option>';
+        clientes.forEach(cliente => {
+          const opcion = document.createElement('option');
+          opcion.value = cliente.id;
+          opcion.textContent = cliente.nombre;
+          selectCliente.appendChild(opcion);
+        });
+        document.getElementById('fecha_entrega').value = obtenerFechaLocalArgentina();
+        agregarFilaProducto();
+        panelPedido.hidden = false;
+        formularioPedido.hidden = false;
+        estadoPagina.textContent = 'Completá el pedido. El reparto se asigna automáticamente a tu usuario.';
+      } catch (error) {
+        console.error('Error al iniciar el formulario de pedido:', error);
+        estadoPagina.textContent = error.message;
+        estadoPagina.className = 'error';
+      }
+    }
+
+    document.getElementById('agregar-producto').addEventListener('click', () => {
+      agregarFilaProducto().querySelector('.cantidad-producto').focus();
+    });
+    document.getElementById('volver-proveedor').addEventListener('click', () => {
+      window.location.href = '/proveedor.html';
+    });
+
+    document.getElementById('form-pedido').addEventListener('submit', async evento => {
+      evento.preventDefault();
+      const boton = document.getElementById('guardar-pedido');
+      boton.disabled = true;
+      estadoPagina.className = 'secundario-texto';
+      estadoPagina.textContent = 'Guardando pedido…';
+      const payload = {
+        tipo_entrega: 'Reparto',
+        cliente_id: selectCliente.value,
+        fecha_entrega: document.getElementById('fecha_entrega').value,
+        items: Array.from(document.querySelectorAll('.item-pedido')).map(fila => ({
+          cantidad: fila.querySelector('.cantidad-producto').value,
+          producto_id: Number(fila.querySelector('.producto-select').value),
+          descripcion: fila.querySelector('.descripcion-producto').value.trim()
+        }))
+      };
+
+      try {
+        const respuesta = await fetch('/api/proveedor/pedidos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        await leerRespuesta(respuesta, 'No se pudo guardar el pedido');
+        const parametros = new URLSearchParams({
+          pedido: 'creado',
+          fecha: payload.fecha_entrega
+        });
+        window.location.replace(`/proveedor.html?${parametros}`);
+      } catch (error) {
+        console.error('Error al guardar pedido del proveedor:', error);
+        estadoPagina.textContent = error.message;
+        estadoPagina.className = 'error';
+        boton.disabled = false;
+      }
+    });
+
+    function actualizarSubcategorias() {
+      const categoria = document.getElementById('nuevo-producto-categoria').value;
+      const opciones = categoria === 'Mayorista'
+        ? [['General', 'General']]
+        : [['Dulce', 'Dulce'], ['Salado', 'Salado']];
+      document.getElementById('nuevo-producto-subcategoria').innerHTML = opciones
+        .map(([valor, etiqueta]) => `<option value="${valor}">${etiqueta}</option>`)
+        .join('');
+    }
+
+    document.getElementById('nuevo-producto').addEventListener('click', () => {
+      document.getElementById('form-producto-nuevo').reset();
+      actualizarSubcategorias();
+      modalProducto.showModal();
+      document.getElementById('nuevo-producto-nombre').focus();
+    });
+    document.getElementById('nuevo-producto-categoria').addEventListener('change', actualizarSubcategorias);
+    document.getElementById('cancelar-producto').addEventListener('click', () => modalProducto.close());
+
+    document.getElementById('form-producto-nuevo').addEventListener('submit', async evento => {
+      evento.preventDefault();
+      const boton = document.getElementById('guardar-producto');
+      boton.disabled = true;
+      const payload = {
+        nombre: document.getElementById('nuevo-producto-nombre').value.trim(),
+        categoria: document.getElementById('nuevo-producto-categoria').value,
+        subcategoria: document.getElementById('nuevo-producto-subcategoria').value,
+        unidad: document.getElementById('nuevo-producto-unidad').value.trim()
+      };
+
+      try {
+        const respuesta = await fetch('/api/productos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const producto = await leerRespuesta(respuesta, 'No se pudo guardar el producto');
+        const catalogoRespuesta = await fetch('/api/productos', { cache: 'no-store' });
+        if (!catalogoRespuesta.ok) throw new Error('Se guardó el producto, pero no se pudo actualizar el catálogo');
+        productosCatalogo = await catalogoRespuesta.json();
+        refrescarSelectores(producto.id);
+        modalProducto.close();
+      } catch (error) {
+        console.error('Error al crear producto desde Proveedor:', error);
+        estadoPagina.textContent = error.message;
+        estadoPagina.className = 'error';
+      } finally {
+        boton.disabled = false;
+      }
+    });
+
+    document.getElementById('form-producto-nuevo').addEventListener('reset', actualizarSubcategorias);
+    actualizarSubcategorias();
+    iniciar();
+  </script>
+</body>
+</html>

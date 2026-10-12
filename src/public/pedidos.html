@@ -313,7 +313,7 @@
                 ${p.items.map(item => `
                   <tr>
                     <td class="cantidad">${escaparHTML(item.cantidad)} ${escaparHTML(item.unidad || '')}</td>
-                    <td>${escaparHTML(item.producto_nombre)}</td>
+                    <td>${escaparHTML(item.producto_nombre)}${item.descripcion ? `<br><small><strong>Descripción:</strong> ${escaparHTML(item.descripcion)}</small>` : ''}</td>
                   </tr>
                 `).join('')}
               </tbody>

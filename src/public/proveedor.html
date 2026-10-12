@@ -36,6 +36,7 @@
     button:disabled { cursor: wait; opacity: .65; }
     .principal { margin-top: 16px; color: white; background: #26733d; }
     .salir { color: #58311f; background: #f0e8e2; }
+    .crear-pedido { margin-top: 10px; color: #fff; background: #1769aa; }
     .quitar-pedido { margin-top: 10px; color: #fff; background: #675348; }
     .envio { padding: 16px; margin: 12px 0; border: 2px solid; border-left-width: 8px; }
     .envio.pendiente { border-color: #d89b00; background: #fff9e6; }
@@ -57,6 +58,7 @@
     .envio h2 { margin-bottom: 8px; }
     .envio p { margin: 8px 0; }
     .envio ul { padding-left: 22px; margin-bottom: 0; }
+    .origen-pedido { font-size: .82rem; color: #6a5d55; }
     .error { color: #9f1d16; font-weight: 650; }
     .secundario { color: #6a5d55; font-size: .9rem; }
     .resumen-cobro { border-top: 1px solid #e2d9d2; margin-top: 14px; padding-top: 10px; }
@@ -94,6 +96,8 @@
       <input id="fecha-envios" type="date" aria-describedby="ayuda-fecha-envios">
       <p id="ayuda-fecha-envios" class="secundario">Sin fecha seleccionada se muestran los envíos de hoy y atrasados. Al elegir una fecha, se muestran los pedidos de ese día.</p>
       <button id="boton-limpiar-fecha" class="salir" type="button">Ver hoy y atrasados</button>
+      <button id="boton-crear-pedido" class="crear-pedido" type="button">➕ Crear pedido</button>
+      <p id="mensaje-pedido-creado" role="status" hidden></p>
       <button id="boton-salir" class="salir" type="button">Cerrar sesión</button>
       <div id="listado-envios" aria-live="polite"></div>
     </section>
@@ -110,6 +114,9 @@
     let temporizadorActualizacion;
 
     fechaEnvios.addEventListener('change', cargarEnvios);
+    document.getElementById('boton-crear-pedido').addEventListener('click', () => {
+      window.location.href = '/pedido-proveedor.html';
+    });
     document.getElementById('boton-limpiar-fecha').addEventListener('click', () => {
       fechaEnvios.value = '';
       cargarEnvios();
@@ -157,6 +164,17 @@
       saludo.textContent = `Hola, ${repartidor}. Consultá tus envíos por fecha. Sin filtro se muestran los de hoy y atrasados; los entregados y cobrados se ocultan después de 8 horas.`;
       panelAcceso.hidden = true;
       panelEnvios.hidden = false;
+      const parametros = new URLSearchParams(window.location.search);
+      const fechaPedido = parametros.get('fecha');
+      if (fechaPedido && /^\d{4}-\d{2}-\d{2}$/.test(fechaPedido)) {
+        fechaEnvios.value = fechaPedido;
+      }
+      if (parametros.get('pedido') === 'creado') {
+        const mensajePedido = document.getElementById('mensaje-pedido-creado');
+        mensajePedido.textContent = '✅ Pedido guardado correctamente.';
+        mensajePedido.hidden = false;
+        window.history.replaceState(null, '', '/proveedor.html');
+      }
       await cargarEnvios();
       clearInterval(temporizadorActualizacion);
       temporizadorActualizacion = setInterval(cargarEnvios, 30000);
@@ -219,8 +237,9 @@
       tarjeta.innerHTML = `
         <div class="estado-envio ${claseEstado}" role="status">${etiquetaEstado}</div>
         <h2>Pedido #${Number(pedido.id)} — ${escaparHTML(pedido.cliente_nombre)}</h2>
+        <p class="origen-pedido"><strong>Creado por:</strong> ${escaparHTML(pedido.creado_por || 'Recepción')}</p>
         <p><strong>Fecha de entrega:</strong> ${escaparHTML(fechaEntrega.split('-').reverse().join('/'))}</p>
-        <ul>${pedido.items.map(item => `<li><strong>${escaparHTML(item.cantidad)} ${escaparHTML(item.unidad || '')}</strong> — ${escaparHTML(item.producto_nombre)}</li>`).join('')}</ul>
+        <ul>${pedido.items.map(item => `<li><strong>${escaparHTML(item.cantidad)} ${escaparHTML(item.unidad || '')}</strong> — ${escaparHTML(item.producto_nombre)}${item.descripcion ? `<br><small><strong>Descripción:</strong> ${escaparHTML(item.descripcion)}</small>` : ''}</li>`).join('')}</ul>
         <div class="resumen-cobro">
           ${precioCargado
             ? `<p><strong>Total del pedido:</strong> ${moneda(total)}</p><p><strong>Cobrado:</strong> ${moneda(pagado)}</p><p><strong>Saldo de este pedido:</strong> ${moneda(saldo)}</p>${historial}`

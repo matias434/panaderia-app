@@ -128,13 +128,15 @@ async function obtenerPedidos({ fecha, soloPendientes = false, repartidor, hasta
       p.tipo_entrega, 
       p.estado,
       p.repartidor,
+      p.creado_por,
       COALESCE(p.cliente_nombre, c.nombre) AS cliente_nombre,
       COALESCE(
         JSON_AGG(
           JSON_BUILD_OBJECT(
             'producto_nombre', COALESCE(dp.producto_nombre, pr.nombre, 'Producto sin nombre'),
             'cantidad', dp.cantidad,
-            'unidad', COALESCE(dp.unidad, '')
+            'unidad', COALESCE(dp.unidad, ''),
+            'descripcion', COALESCE(dp.descripcion, '')
           )
         ) FILTER (WHERE dp.id IS NOT NULL), '[]'
       ) AS items
@@ -143,7 +145,7 @@ async function obtenerPedidos({ fecha, soloPendientes = false, repartidor, hasta
     LEFT JOIN detalle_pedidos dp ON dp.pedido_id = p.id
     LEFT JOIN productos pr ON dp.producto_id = pr.id
     ${filtros.length ? `WHERE ${filtros.join(' AND ')}` : ''}
-    GROUP BY p.id, p.fecha_entrega, p.tipo_entrega, p.estado, p.repartidor, p.cliente_nombre, c.nombre
+    GROUP BY p.id, p.fecha_entrega, p.tipo_entrega, p.estado, p.repartidor, p.creado_por, p.cliente_nombre, c.nombre
     ORDER BY ${soloPendientes || hastaFecha ? 'p.fecha_entrega ASC, p.id ASC' : 'p.id DESC'};
   `;
 
@@ -351,6 +353,7 @@ app.get('/api/secretaria/pedidos', requiereSesionSecretaria, async (req, res) =>
              'producto_nombre', COALESCE(dp.producto_nombre, pr.nombre, 'Producto sin nombre'),
              'cantidad', dp.cantidad,
              'unidad', COALESCE(dp.unidad, ''),
+             'descripcion', COALESCE(dp.descripcion, ''),
              'precio_unitario', dp.precio_unitario,
              'subtotal', ROUND(dp.cantidad * dp.precio_unitario, 2)
            ) ORDER BY dp.id) AS items,
@@ -558,6 +561,7 @@ app.get('/api/proveedor/pedidos', requiereSesionProveedor, async (req, res) => {
          p.tipo_entrega,
          p.estado,
          p.repartidor,
+         p.creado_por,
          COALESCE(p.cliente_nombre, c.nombre) AS cliente_nombre,
          p.entregado_en,
          COALESCE(detalles.items, '[]'::JSON) AS items,
@@ -572,6 +576,7 @@ app.get('/api/proveedor/pedidos', requiereSesionProveedor, async (req, res) => {
              'producto_nombre', COALESCE(dp.producto_nombre, pr.nombre, 'Producto sin nombre'),
              'cantidad', dp.cantidad,
              'unidad', COALESCE(dp.unidad, ''),
+             'descripcion', COALESCE(dp.descripcion, ''),
              'precio_unitario', dp.precio_unitario,
              'subtotal', ROUND(dp.cantidad * dp.precio_unitario, 2)
            ) ORDER BY dp.id) AS items,
@@ -770,8 +775,7 @@ app.post('/api/proveedor/pedidos/:id/pagos', requiereSesionProveedor, async (req
   }
 });
 
-// 3. Crear un nuevo pedido con transacción
-app.post('/api/pedidos', async (req, res) => {
+async function guardarPedido(req, res, repartidorAutenticado = null) {
   let client;
   try {
     const {
@@ -781,7 +785,9 @@ app.post('/api/pedidos', async (req, res) => {
       tipo_entrega = 'Reparto',
       repartidor,
       items
-    } = req.body;
+    } = req.body || {};
+    const repartidorPedido = repartidorAutenticado || repartidor;
+    const creadoPor = repartidorAutenticado || 'Recepción';
     const esRetiro = tipo_entrega === 'Retiro en local';
 
     if (!['Reparto', 'Retiro en local'].includes(tipo_entrega)) {
@@ -792,7 +798,7 @@ app.post('/api/pedidos', async (req, res) => {
       return res.status(400).json({ error: 'Escribí el nombre de la persona que retira el pedido' });
     }
 
-    if (!esRetiro && (!cliente_id || !['Rodrigo', 'Elsa', 'Marcos'].includes(repartidor))) {
+    if (!esRetiro && (!cliente_id || !repartidores.includes(repartidorPedido))) {
       return res.status(400).json({ error: 'Seleccioná un cliente y un repartidor válido' });
     }
 
@@ -813,6 +819,13 @@ app.post('/api/pedidos', async (req, res) => {
     ) {
       return res.status(400).json({ error: 'Seleccioná un producto y completá la cantidad en cada renglón' });
     }
+    if (items.some(item =>
+      item.descripcion !== undefined &&
+      item.descripcion !== null &&
+      (typeof item.descripcion !== 'string' || item.descripcion.length > 500)
+    )) {
+      return res.status(400).json({ error: 'La descripción de cada producto debe tener hasta 500 caracteres' });
+    }
 
     client = await db.pool.connect();
     const idsProductos = [...new Set(items.map(item => Number(item.producto_id)))];
@@ -831,14 +844,15 @@ app.post('/api/pedidos', async (req, res) => {
 
     // Insertar cabecera del pedido
     const resPedido = await client.query(
-      `INSERT INTO pedidos (cliente_id, cliente_nombre, fecha_entrega, estado, tipo_entrega, repartidor) 
-       VALUES ($1, $2, $3, 'Pendiente', $4, $5) RETURNING id`,
+      `INSERT INTO pedidos (cliente_id, cliente_nombre, fecha_entrega, estado, tipo_entrega, repartidor, creado_por)
+       VALUES ($1, $2, $3, 'Pendiente', $4, $5, $6) RETURNING id`,
       [
         esRetiro ? null : cliente_id,
         esRetiro ? cliente_nombre.trim() : null,
         fecha_entrega,
         tipo_entrega,
-        esRetiro ? null : repartidor
+        esRetiro ? null : repartidorPedido,
+        creadoPor
       ]
     );
     const pedidoId = resPedido.rows[0].id;
@@ -847,9 +861,9 @@ app.post('/api/pedidos', async (req, res) => {
     for (const item of items) {
       const producto = productosPorId.get(Number(item.producto_id));
       await client.query(
-        `INSERT INTO detalle_pedidos (pedido_id, producto_id, producto_nombre, cantidad, unidad)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [pedidoId, producto.id, producto.nombre, item.cantidad, producto.unidad]
+        `INSERT INTO detalle_pedidos (pedido_id, producto_id, producto_nombre, cantidad, unidad, descripcion)
+         VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''))`,
+        [pedidoId, producto.id, producto.nombre, item.cantidad, producto.unidad, (item.descripcion || '').trim()]
       );
     }
 
@@ -857,7 +871,8 @@ app.post('/api/pedidos', async (req, res) => {
     res.status(201).json({
       id: pedidoId,
       tipo_entrega,
-      repartidor: esRetiro ? null : repartidor,
+      repartidor: esRetiro ? null : repartidorPedido,
+      creado_por: creadoPor,
       mensaje: 'Pedido creado exitosamente'
     });
   } catch (error) {
@@ -873,7 +888,17 @@ app.post('/api/pedidos', async (req, res) => {
   } finally {
     if (client) client.release();
   }
-});
+}
+
+// Recepción crea pedidos y determina el repartidor cuando corresponde.
+app.post('/api/pedidos', (req, res) => guardarPedido(req, res));
+
+// El repartidor autenticado crea pedidos únicamente a su nombre.
+app.post('/api/proveedor/pedidos', requiereSesionProveedor, (req, res) =>
+  (req.body?.tipo_entrega && req.body.tipo_entrega !== 'Reparto')
+    ? res.status(400).json({ error: 'Desde Proveedor solo se pueden crear pedidos de reparto' })
+    : guardarPedido(req, res, req.repartidorAutenticado)
+);
 
 // 4. Obtener los pedidos pendientes, independientemente de su fecha
 app.get('/api/pedidos/pendientes', async (req, res) => {
@@ -959,7 +984,8 @@ app.get('/api/pedidos/cocina', async (req, res) => {
       `SELECT
          COALESCE(dp.producto_nombre, pr.nombre, 'Producto sin nombre') AS producto,
          COALESCE(dp.unidad, '') AS unidad,
-         SUM(dp.cantidad) AS cantidad_total
+         SUM(dp.cantidad) AS cantidad_total,
+         STRING_AGG(DISTINCT NULLIF(BTRIM(dp.descripcion), ''), '; ') AS descripciones
        FROM pedidos p
        JOIN detalle_pedidos dp ON dp.pedido_id = p.id
        LEFT JOIN productos pr ON pr.id = dp.producto_id

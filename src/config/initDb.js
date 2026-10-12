@@ -35,6 +35,7 @@ const initSchema = async () => {
       tipo_entrega VARCHAR(20) DEFAULT 'reparto',
       estado VARCHAR(20) DEFAULT 'pendiente',
       repartidor VARCHAR(20),
+      creado_por VARCHAR(30) NOT NULL DEFAULT 'Recepción',
       creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -46,15 +47,18 @@ const initSchema = async () => {
       producto_nombre VARCHAR(150),
       cantidad NUMERIC(8,2) NOT NULL,
       unidad VARCHAR(30),
-      precio_unitario NUMERIC(12,2)
+      precio_unitario NUMERIC(12,2),
+      descripcion TEXT
     );
   `);
 
   await db.query('ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS repartidor VARCHAR(20)');
   await db.query('ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS cliente_nombre VARCHAR(100)');
+  await db.query("ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS creado_por VARCHAR(30) NOT NULL DEFAULT 'Recepción'");
   await db.query('ALTER TABLE detalle_pedidos ADD COLUMN IF NOT EXISTS producto_nombre VARCHAR(150)');
   await db.query('ALTER TABLE detalle_pedidos ADD COLUMN IF NOT EXISTS unidad VARCHAR(30)');
   await db.query('ALTER TABLE detalle_pedidos ADD COLUMN IF NOT EXISTS precio_unitario NUMERIC(12,2)');
+  await db.query('ALTER TABLE detalle_pedidos ADD COLUMN IF NOT EXISTS descripcion TEXT');
   await db.query('ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS entregado_en TIMESTAMP');
   await db.query('ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS oculto_proveedor BOOLEAN NOT NULL DEFAULT FALSE');
   await db.query("ALTER TABLE productos ADD COLUMN IF NOT EXISTS categoria VARCHAR(30) NOT NULL DEFAULT 'Otros'");

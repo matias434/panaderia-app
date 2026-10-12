@@ -109,10 +109,20 @@
       background: #e8f5eb;
     }
     .item-pedido {
+      margin: 8px 0;
+    }
+    .item-pedido-controles {
       display: grid;
       grid-template-columns: 90px 120px minmax(0, 1fr) auto;
       gap: 8px;
-      margin: 8px 0;
+    }
+    .descripcion-producto {
+      width: 100%;
+      min-height: 64px;
+      margin-top: 8px;
+      padding: 8px;
+      font: inherit;
+      resize: vertical;
     }
     .estado-pedido {
       display: inline-block;
@@ -127,6 +137,15 @@
     .estado-pedido.completado {
       background: #ccebd3;
       color: #205c30;
+    }
+    .origen-pedido {
+      float: right;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #e8e1dc;
+      color: #58311f;
+      font-size: 12px;
+      font-weight: bold;
     }
     .pedidos-pendientes-panel {
       padding: 10px;
@@ -155,8 +174,8 @@
     @media (max-width: 600px) {
       body { margin: 10px; }
       .card { padding: 14px; margin-bottom: 14px; }
-      .item-pedido { grid-template-columns: 78px 95px minmax(0, 1fr); }
-      .item-pedido .quitar-producto { grid-column: 1 / -1; }
+      .item-pedido-controles { grid-template-columns: 78px 95px minmax(0, 1fr); }
+      .item-pedido-controles .quitar-producto { grid-column: 1 / -1; }
       .comanda-ticket { max-width: 100%; }
       #filtro-fecha { max-width: 100%; }
     }
@@ -272,7 +291,6 @@
     <input type="date" id="filtro-fecha" style="padding: 8px;">
     <button class="btn btn-blue" onclick="cargarPedidos()">Ver Pedidos</button>
     <button class="btn btn-secondary" onclick="abrirResumenProductos()">Ver total productos</button>
-    <a class="btn btn-secondary" href="/secretaria.html" style="display:inline-block; text-decoration:none; margin:8px 0;">Secretaría: precios y cobros</a>
     <button class="btn btn-secondary" onclick="window.print()">🖨️ Imprimir Todo para Cocina</button>
   </div>
 
@@ -348,16 +366,28 @@
       const fila = document.createElement('div');
       fila.className = 'item-pedido';
       fila.innerHTML = `
-        <input class="cantidad-producto" type="number" inputmode="decimal" placeholder="Cant." min="0.01" step="any" required aria-label="Cantidad">
-        <input class="unidad-producto" type="text" placeholder="Unidad" readonly required aria-label="Unidad">
-        <select class="producto-select" required aria-label="Producto">
-          <option value="">-- Seleccionar producto --</option>
-        </select>
-        <button type="button" class="btn btn-secondary quitar-producto" aria-label="Quitar producto">Quitar</button>
+        <div class="item-pedido-controles">
+          <input class="cantidad-producto" type="number" inputmode="decimal" placeholder="Cant." min="0.01" step="any" required aria-label="Cantidad">
+          <input class="unidad-producto" type="text" placeholder="Unidad" readonly required aria-label="Unidad">
+          <select class="producto-select" required aria-label="Producto">
+            <option value="">-- Seleccionar producto --</option>
+          </select>
+          <button type="button" class="btn btn-secondary quitar-producto" aria-label="Quitar producto">Quitar</button>
+        </div>
+        <label class="descripcion-label" hidden>
+          Descripción opcional para cocina
+          <textarea class="descripcion-producto" maxlength="500" rows="2" placeholder="Ej.: más dorado"></textarea>
+        </label>
       `;
       const selector = fila.querySelector('.producto-select');
       cargarOpcionesProductos(selector);
       selector.addEventListener('change', () => {
+        const productoAnterior = selector.dataset.productoAnterior || '';
+        if (productoAnterior && productoAnterior !== selector.value) {
+          fila.querySelector('.descripcion-producto').value = '';
+        }
+        selector.dataset.productoAnterior = selector.value;
+        fila.querySelector('.descripcion-label').hidden = !selector.value;
         const producto = productosCatalogo.find(item => String(item.id) === selector.value);
         fila.querySelector('.unidad-producto').value = producto ? producto.unidad : '';
       });
@@ -508,7 +538,8 @@
         fecha_entrega: document.getElementById('fecha_entrega').value,
         items: Array.from(document.querySelectorAll('.item-pedido')).map(fila => ({
           cantidad: fila.querySelector('.cantidad-producto').value,
-          producto_id: Number(fila.querySelector('.producto-select').value)
+          producto_id: Number(fila.querySelector('.producto-select').value),
+          descripcion: fila.querySelector('.descripcion-producto').value.trim()
         }))
       };
 
@@ -611,17 +642,19 @@
       const completado = String(pedido.estado || 'Pendiente').toLowerCase() === 'completado';
       div.className = `comanda-ticket ${completado ? 'pedido-completado' : 'pedido-pendiente'}`;
       const fecha = escaparHTML(pedido.fecha_entrega);
+      const creadoPor = escaparHTML(pedido.creado_por || 'Recepción');
       const tipoEntrega = pedido.tipo_entrega === 'Retiro en local'
         ? 'Retiro en el local'
         : `Reparto — ${pedido.repartidor || 'Sin asignar'}`;
       div.innerHTML = `
+        <span class="origen-pedido">Creado por: ${creadoPor}</span>
         <h3>Pedido #${pedido.id} - ${escaparHTML(pedido.cliente_nombre)}</h3>
         <p><strong>Fecha de Entrega:</strong> ${fecha}</p>
         <p><strong>Entrega:</strong> ${escaparHTML(tipoEntrega)}</p>
         <p><strong>Estado:</strong> <span class="estado-pedido ${completado ? 'completado' : 'pendiente'}">${completado ? 'Completado' : 'Pendiente'}</span></p>
         <ul>
           ${pedido.items && pedido.items.length > 0
-            ? pedido.items.map(item => `<li><strong>${escaparHTML(item.cantidad)} ${escaparHTML(item.unidad || '')}</strong> — ${escaparHTML(item.producto_nombre)}</li>`).join('')
+            ? pedido.items.map(item => `<li><strong>${escaparHTML(item.cantidad)} ${escaparHTML(item.unidad || '')}</strong> — ${escaparHTML(item.producto_nombre)}${item.descripcion ? `<br><small><strong>Descripción:</strong> ${escaparHTML(item.descripcion)}</small>` : ''}</li>`).join('')
             : '<li>Sin detalles</li>'
           }
         </ul>
