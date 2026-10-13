@@ -37,6 +37,8 @@
     .secundario { color: #58311f; background: #f0e8e2; }
     .catalogo { color: #fff; background: #1769aa; margin-top: 12px; }
     .acciones { display: grid; gap: 10px; margin-top: 14px; }
+    .cliente-selector { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+    .cliente-selector button { width: auto; white-space: nowrap; color: #58311f; background: #f0e8e2; }
     .item-pedido {
       margin: 8px 0;
     }
@@ -89,7 +91,10 @@
       <p id="asignacion-proveedor" class="secundario-texto"></p>
       <form id="form-pedido" hidden>
         <label for="cliente_id">Revendedor</label>
-        <select id="cliente_id" required></select>
+        <div class="cliente-selector">
+          <select id="cliente_id" required></select>
+          <button type="button" id="alta-revendedor">+ Agregar nuevo revendedor</button>
+        </div>
 
         <label for="fecha_entrega">Fecha de entrega</label>
         <input type="date" id="fecha_entrega" required>
@@ -134,6 +139,19 @@
     </form>
   </dialog>
 
+  <dialog id="modal-revendedor">
+    <h2>Agregar nuevo revendedor</h2>
+    <form id="form-revendedor-nuevo">
+      <label for="nuevo-revendedor-nombre">Nombre del revendedor</label>
+      <input type="text" id="nuevo-revendedor-nombre" maxlength="100" required>
+      <p id="error-revendedor" class="error" role="alert" hidden></p>
+      <menu>
+        <button type="button" id="cancelar-revendedor" class="secundario">Cancelar</button>
+        <button type="submit" id="guardar-revendedor" class="principal">Guardar revendedor</button>
+      </menu>
+    </form>
+  </dialog>
+
   <script>
     const estadoPagina = document.getElementById('estado-pagina');
     const formularioPedido = document.getElementById('form-pedido');
@@ -141,6 +159,7 @@
     const selectCliente = document.getElementById('cliente_id');
     const listaItems = document.getElementById('items-pedido');
     const modalProducto = document.getElementById('modal-producto');
+    const modalRevendedor = document.getElementById('modal-revendedor');
     let productosCatalogo = [];
     let repartidorAutenticado = '';
 
@@ -282,7 +301,7 @@
           respuestaClientes.json(),
           respuestaProductos.json()
         ]);
-        if (!Array.isArray(clientes) || clientes.length === 0) throw new Error('No hay revendedores cargados');
+        if (!Array.isArray(clientes)) throw new Error('La lista de revendedores tiene un formato incorrecto');
         if (!Array.isArray(productos)) throw new Error('El catálogo de productos tiene un formato incorrecto');
         productosCatalogo = productos;
 
@@ -310,6 +329,44 @@
     });
     document.getElementById('volver-proveedor').addEventListener('click', () => {
       window.location.href = '/proveedor.html';
+    });
+
+    document.getElementById('alta-revendedor').addEventListener('click', () => {
+      document.getElementById('form-revendedor-nuevo').reset();
+      document.getElementById('error-revendedor').hidden = true;
+      modalRevendedor.showModal();
+      document.getElementById('nuevo-revendedor-nombre').focus();
+    });
+    document.getElementById('cancelar-revendedor').addEventListener('click', () => modalRevendedor.close());
+    document.getElementById('form-revendedor-nuevo').addEventListener('submit', async evento => {
+      evento.preventDefault();
+      const boton = document.getElementById('guardar-revendedor');
+      const mensaje = document.getElementById('error-revendedor');
+      mensaje.hidden = true;
+      boton.disabled = true;
+
+      try {
+        const respuesta = await fetch('/api/proveedor/clientes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nombre: document.getElementById('nuevo-revendedor-nombre').value.trim()
+          })
+        });
+        const revendedor = await leerRespuesta(respuesta, 'No se pudo crear el revendedor');
+        const opcion = document.createElement('option');
+        opcion.value = revendedor.id;
+        opcion.textContent = revendedor.nombre;
+        selectCliente.appendChild(opcion);
+        selectCliente.value = String(revendedor.id);
+        modalRevendedor.close();
+      } catch (error) {
+        console.error('Error al crear revendedor desde Proveedor:', error);
+        mensaje.textContent = error.message;
+        mensaje.hidden = false;
+      } finally {
+        boton.disabled = false;
+      }
     });
 
     document.getElementById('form-pedido').addEventListener('submit', async evento => {

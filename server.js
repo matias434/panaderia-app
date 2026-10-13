@@ -42,6 +42,34 @@ app.get('/api/clientes', async (req, res) => {
   }
 });
 
+async function crearCliente(req, res) {
+  const nombre = typeof req.body?.nombre === 'string' ? req.body.nombre.trim() : '';
+  if (!nombre || nombre.length > 100) {
+    return res.status(400).json({ error: 'Ingresá el nombre del revendedor (máximo 100 caracteres)' });
+  }
+
+  try {
+    const existente = await db.query(
+      'SELECT id, nombre FROM clientes WHERE LOWER(BTRIM(nombre)) = LOWER($1) LIMIT 1',
+      [nombre]
+    );
+    if (existente.rowCount > 0) {
+      return res.status(409).json({ error: 'Ya existe un revendedor con ese nombre' });
+    }
+
+    const result = await db.query(
+      'INSERT INTO clientes (nombre) VALUES ($1) RETURNING id, nombre',
+      [nombre]
+    );
+    return res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Error al crear revendedor:', error);
+    return res.status(500).json({ error: 'No se pudo crear el revendedor' });
+  }
+}
+
+app.post('/api/clientes', (req, res) => crearCliente(req, res));
+
 // 2. Obtener todos los productos
 app.get('/api/productos', async (req, res) => {
   try {
@@ -538,6 +566,8 @@ app.post('/api/proveedor/login', (req, res) => {
 app.get('/api/proveedor/sesion', requiereSesionProveedor, (req, res) => {
   res.json({ repartidor: req.repartidorAutenticado });
 });
+
+app.post('/api/proveedor/clientes', requiereSesionProveedor, (req, res) => crearCliente(req, res));
 
 app.post('/api/proveedor/logout', (req, res) => {
   res.setHeader(

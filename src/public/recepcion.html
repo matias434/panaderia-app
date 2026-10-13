@@ -30,6 +30,14 @@
     }
     .btn-blue { background-color: #007bff; }
     .btn-secondary { background-color: #6c757d; }
+    .cliente-selector {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: end;
+    }
+    .cliente-selector select { min-width: 0; }
+    .btn-alta-cliente { min-height: 40px; padding: 8px 12px; font-size: 14px; }
 
     .modal-backdrop {
       position: fixed;
@@ -201,7 +209,10 @@
 
       <div id="datos-reparto">
         <label for="cliente_id">Revendedor:</label><br>
-        <select id="cliente_id" required style="width: 100%; padding: 8px; margin-bottom: 10px;"></select><br>
+        <div class="cliente-selector">
+          <select id="cliente_id" required style="width: 100%; padding: 8px; margin-bottom: 10px;"></select>
+          <button type="button" id="alta-revendedor" class="btn btn-secondary btn-alta-cliente" style="margin-bottom:10px;">+ Agregar nuevo revendedor</button>
+        </div>
 
         <label for="repartidor">Repartidor:</label><br>
         <select id="repartidor" required style="width: 100%; padding: 8px; margin-bottom: 10px;">
@@ -266,6 +277,22 @@
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary" id="cancelar-producto">Cancelar</button>
           <button type="submit" class="btn">Guardar producto</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="modal-revendedor" class="modal-backdrop" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="titulo-modal-revendedor">
+      <button type="button" class="modal-close" aria-label="Cerrar modal" id="cerrar-modal-revendedor">×</button>
+      <h3 id="titulo-modal-revendedor">Agregar nuevo revendedor</h3>
+      <form id="form-revendedor-nuevo">
+        <label for="nuevo-revendedor-nombre">Nombre del revendedor</label>
+        <input type="text" id="nuevo-revendedor-nombre" maxlength="100" required>
+        <p id="error-revendedor" role="alert" hidden></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="cancelar-revendedor">Cancelar</button>
+          <button type="submit" class="btn">Guardar revendedor</button>
         </div>
       </form>
     </div>
@@ -493,6 +520,57 @@
       } catch (error) {
         console.error('Error al crear producto:', error);
         alert(`❌ ${error.message}`);
+      }
+    });
+
+    function agregarRevendedorAlSelector(revendedor) {
+      const selector = document.getElementById('cliente_id');
+      const opcion = document.createElement('option');
+      opcion.value = revendedor.id;
+      opcion.textContent = revendedor.nombre;
+      selector.appendChild(opcion);
+      selector.value = String(revendedor.id);
+    }
+
+    function cerrarModalRevendedor() {
+      document.getElementById('modal-revendedor').hidden = true;
+      document.getElementById('form-revendedor-nuevo').reset();
+      document.getElementById('error-revendedor').hidden = true;
+    }
+
+    document.getElementById('alta-revendedor').addEventListener('click', () => {
+      document.getElementById('modal-revendedor').hidden = false;
+      document.getElementById('nuevo-revendedor-nombre').focus();
+    });
+    document.getElementById('cerrar-modal-revendedor').addEventListener('click', cerrarModalRevendedor);
+    document.getElementById('cancelar-revendedor').addEventListener('click', cerrarModalRevendedor);
+    document.getElementById('modal-revendedor').addEventListener('click', event => {
+      if (event.target.id === 'modal-revendedor') cerrarModalRevendedor();
+    });
+    document.getElementById('form-revendedor-nuevo').addEventListener('submit', async event => {
+      event.preventDefault();
+      const nombre = document.getElementById('nuevo-revendedor-nombre').value.trim();
+      const mensaje = document.getElementById('error-revendedor');
+      const boton = event.currentTarget.querySelector('button[type="submit"]');
+      mensaje.hidden = true;
+      boton.disabled = true;
+
+      try {
+        const response = await fetch('/api/clientes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nombre })
+        });
+        const resultado = await response.json();
+        if (!response.ok) throw new Error(resultado.error || 'No se pudo crear el revendedor');
+        agregarRevendedorAlSelector(resultado);
+        cerrarModalRevendedor();
+      } catch (error) {
+        console.error('Error al crear revendedor desde Recepción:', error);
+        mensaje.textContent = error.message;
+        mensaje.hidden = false;
+      } finally {
+        boton.disabled = false;
       }
     });
 
