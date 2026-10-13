@@ -220,13 +220,13 @@
     <button class="btn btn-secondary" onclick="cargarPedidos()">Buscar Pedidos</button>
     <button class="btn" onclick="window.print()">🖨️ Imprimir Hoja para Cocina</button>
     <button class="btn btn-secondary" onclick="cargarResumenProduccion()">Ver total productos</button>
-    <a href="/recepcion.html" style="margin-left: 15px;">← Volver a Recepción</a>
+    <a href="/secretaria.html" style="margin-left: 15px;">← Volver a Secretaría</a>
   </div>
 
   <section id="resumen-produccion" hidden>
     <div class="no-print">
       <button class="btn" onclick="imprimirResumenProduccion()">🖨️ Imprimir total productos</button>
-      <a class="btn btn-secondary" href="/recepcion.html">← Volver a Recepción</a>
+      <a class="btn btn-secondary" href="/secretaria.html">← Volver a Secretaría</a>
     </div>
     <h1>🥖 Pedidos agrupados por producto</h1>
     <h3 id="fecha-resumen-produccion"></h3>
@@ -446,7 +446,7 @@
       })[caracter]);
     }
 
-    // Abrir directamente el informe cuando se solicita desde Recepción.
+    // Abrir directamente el informe cuando se solicita desde Secretaría.
     if (parametrosIniciales.get('vista') === 'productos') {
       cargarResumenProduccion();
     } else {

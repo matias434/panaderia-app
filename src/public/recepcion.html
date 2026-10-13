@@ -124,6 +124,59 @@
       grid-template-columns: 90px 120px minmax(0, 1fr) auto;
       gap: 8px;
     }
+    .item-pedido-controles > input {
+      min-width: 0;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px;
+    }
+    .producto-selector {
+      position: relative;
+      min-width: 0;
+    }
+    .producto-trigger {
+      width: 100%;
+      min-height: 38px;
+      padding: 8px;
+      overflow: hidden;
+      text-align: left;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .producto-opciones {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      z-index: 20;
+      width: 100%;
+      max-height: 280px;
+      overflow-y: auto;
+      padding: 8px;
+      border: 1px solid #c8bdb5;
+      border-radius: 6px;
+      background: #fff;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, .2);
+    }
+    .producto-busqueda {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px;
+      margin-bottom: 6px;
+    }
+    .producto-grupo { margin: 8px 0 4px; font-size: 13px; }
+    .producto-opcion {
+      display: block;
+      width: 100%;
+      padding: 8px;
+      border: 0;
+      border-radius: 4px;
+      background: #fff;
+      color: #333;
+      text-align: left;
+      cursor: pointer;
+    }
+    .producto-opcion:hover, .producto-opcion:focus { background: #e8f1fb; }
+    .producto-sin-resultados { margin: 8px 4px; color: #555; }
     .descripcion-producto {
       width: 100%;
       min-height: 64px;
@@ -317,7 +370,6 @@
     <label>Filtrar por Fecha:</label>
     <input type="date" id="filtro-fecha" style="padding: 8px;">
     <button class="btn btn-blue" onclick="cargarPedidos()">Ver Pedidos</button>
-    <button class="btn btn-secondary" onclick="abrirResumenProductos()">Ver total productos</button>
     <button class="btn btn-secondary" onclick="window.print()">🖨️ Imprimir Todo para Cocina</button>
   </div>
 
@@ -331,16 +383,7 @@
     document.getElementById('filtro-fecha').value = hoy;
     let productosCatalogo = [];
 
-    function abrirResumenProductos() {
-      const fecha = document.getElementById('filtro-fecha').value;
-      if (!fecha) {
-        alert('Seleccioná una fecha de entrega');
-        return;
-      }
-      window.location.href = `/pedidos.html?vista=productos&fecha=${encodeURIComponent(fecha)}`;
-    }
-
-    function cargarOpcionesProductos(selector, idSeleccionado = '') {
+    function obtenerGruposProductos() {
       const grupos = [
         ['Mayorista', 'General', 'Mayorista'],
         ['Minorista', 'Dulce', 'Minorista — Dulce'],
@@ -354,26 +397,62 @@
           grupos.push([producto.categoria, producto.subcategoria, `${producto.categoria} — ${producto.subcategoria}`]);
         }
       });
+      return grupos;
+    }
 
-      selector.innerHTML = '<option value="">-- Seleccionar producto --</option>';
-      grupos.forEach(([categoria, subcategoria, etiqueta]) => {
+    function renderizarOpcionesProductos(fila) {
+      const resultados = fila.querySelector('.producto-resultados');
+      const busqueda = fila.querySelector('.producto-busqueda').value.trim().toLocaleLowerCase('es');
+      resultados.innerHTML = '';
+      let cantidadResultados = 0;
+      obtenerGruposProductos().forEach(([categoria, subcategoria, etiqueta]) => {
         const productosGrupo = productosCatalogo.filter(producto =>
-          producto.categoria === categoria && producto.subcategoria === subcategoria
+          producto.categoria === categoria &&
+          producto.subcategoria === subcategoria &&
+          String(producto.nombre || '').trim().toLocaleLowerCase('es').startsWith(busqueda)
         );
         if (productosGrupo.length === 0) return;
-        const grupo = document.createElement('optgroup');
-        grupo.label = etiqueta;
+        const titulo = document.createElement('strong');
+        titulo.className = 'producto-grupo';
+        titulo.textContent = etiqueta;
+        resultados.appendChild(titulo);
         productosGrupo.forEach(producto => {
-          const opcion = document.createElement('option');
-          opcion.value = producto.id;
+          const opcion = document.createElement('button');
+          opcion.type = 'button';
+          opcion.className = 'producto-opcion';
+          opcion.setAttribute('role', 'option');
           opcion.textContent = `${producto.nombre} — ${producto.unidad}`;
-          grupo.appendChild(opcion);
+          opcion.addEventListener('click', () => {
+            const selector = fila.querySelector('.producto-select');
+            selector.value = String(producto.id);
+            selector.dispatchEvent(new Event('change'));
+            fila.querySelector('.producto-opciones').hidden = true;
+            const disparador = fila.querySelector('.producto-trigger');
+            disparador.setAttribute('aria-expanded', 'false');
+            disparador.focus();
+          });
+          resultados.appendChild(opcion);
+          cantidadResultados++;
         });
-        selector.appendChild(grupo);
       });
-      if (idSeleccionado && Array.from(selector.options).some(opcion => opcion.value === String(idSeleccionado))) {
+      if (cantidadResultados === 0) {
+        const mensaje = document.createElement('p');
+        mensaje.className = 'producto-sin-resultados';
+        mensaje.textContent = 'No se encontraron productos que comiencen con ese texto.';
+        resultados.appendChild(mensaje);
+      }
+    }
+
+    function cargarOpcionesProductos(selector, idSeleccionado = '') {
+      if (idSeleccionado && productosCatalogo.some(producto => String(producto.id) === String(idSeleccionado))) {
         selector.value = String(idSeleccionado);
       }
+      const fila = selector.closest('.item-pedido');
+      const producto = productosCatalogo.find(item => String(item.id) === selector.value);
+      fila.querySelector('.producto-trigger').textContent = producto
+        ? `${producto.nombre} — ${producto.unidad}`
+        : '-- Seleccionar producto --';
+      renderizarOpcionesProductos(fila);
     }
 
     function actualizarSelectoresProductos(idSeleccionado = '') {
@@ -396,9 +475,14 @@
         <div class="item-pedido-controles">
           <input class="cantidad-producto" type="number" inputmode="decimal" placeholder="Cant." min="0.01" step="any" required aria-label="Cantidad">
           <input class="unidad-producto" type="text" placeholder="Unidad" readonly required aria-label="Unidad">
-          <select class="producto-select" required aria-label="Producto">
-            <option value="">-- Seleccionar producto --</option>
-          </select>
+          <div class="producto-selector">
+            <button type="button" class="producto-trigger btn btn-secondary" aria-haspopup="listbox" aria-expanded="false">-- Seleccionar producto --</button>
+            <div class="producto-opciones" hidden>
+              <input class="producto-busqueda" type="search" placeholder="Filtrar por inicial o nombre..." autocomplete="off" aria-label="Filtrar productos">
+              <div class="producto-resultados" role="listbox" aria-label="Productos disponibles"></div>
+            </div>
+            <input type="hidden" class="producto-select">
+          </div>
           <button type="button" class="btn btn-secondary quitar-producto" aria-label="Quitar producto">Quitar</button>
         </div>
         <label class="descripcion-label" hidden>
@@ -407,7 +491,28 @@
         </label>
       `;
       const selector = fila.querySelector('.producto-select');
+      const busquedaProducto = fila.querySelector('.producto-busqueda');
+      const opcionesProducto = fila.querySelector('.producto-opciones');
+      const botonProducto = fila.querySelector('.producto-trigger');
       cargarOpcionesProductos(selector);
+      botonProducto.addEventListener('click', () => {
+        document.querySelectorAll('.producto-opciones').forEach(opciones => {
+          if (opciones !== opcionesProducto) {
+            opciones.hidden = true;
+            opciones.closest('.producto-selector').querySelector('.producto-trigger').setAttribute('aria-expanded', 'false');
+          }
+        });
+        opcionesProducto.hidden = !opcionesProducto.hidden;
+        botonProducto.setAttribute('aria-expanded', String(!opcionesProducto.hidden));
+        if (!opcionesProducto.hidden) {
+          busquedaProducto.value = '';
+          renderizarOpcionesProductos(fila);
+          busquedaProducto.focus();
+        }
+      });
+      busquedaProducto.addEventListener('input', () => {
+        renderizarOpcionesProductos(fila);
+      });
       selector.addEventListener('change', () => {
         const productoAnterior = selector.dataset.productoAnterior || '';
         if (productoAnterior && productoAnterior !== selector.value) {
@@ -417,18 +522,29 @@
         fila.querySelector('.descripcion-label').hidden = !selector.value;
         const producto = productosCatalogo.find(item => String(item.id) === selector.value);
         fila.querySelector('.unidad-producto').value = producto ? producto.unidad : '';
+        botonProducto.textContent = producto ? `${producto.nombre} — ${producto.unidad}` : '-- Seleccionar producto --';
       });
-      const campos = Array.from(fila.querySelectorAll('input, select'));
+      busquedaProducto.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {
+          opcionesProducto.hidden = true;
+          botonProducto.setAttribute('aria-expanded', 'false');
+          botonProducto.focus();
+        }
+        if (event.key === 'Enter') {
+          const primeraOpcion = fila.querySelector('.producto-opcion');
+          if (primeraOpcion) {
+            event.preventDefault();
+            primeraOpcion.click();
+          }
+        }
+      });
+      const campos = Array.from(fila.querySelectorAll('.cantidad-producto, .unidad-producto'));
       campos.forEach((campo, indice) => {
-        campo.style.cssText = 'min-width:0; width:100%; box-sizing:border-box; padding:8px;';
         campo.addEventListener('keydown', event => {
           if (event.key !== 'Enter') return;
           event.preventDefault();
-          if (indice < campos.length - 1) {
-            campos[indice + 1].focus();
-          } else {
-            agregarFilaProducto().querySelector('.cantidad-producto').focus();
-          }
+          if (indice < campos.length - 1) campos[indice + 1].focus();
+          else botonProducto.focus();
         });
       });
       fila.querySelector('.quitar-producto').addEventListener('click', () => {
@@ -438,6 +554,13 @@
     }
 
     document.getElementById('agregar-producto').addEventListener('click', agregarFilaProducto);
+    document.addEventListener('click', event => {
+      if (event.target.closest('.producto-selector')) return;
+      document.querySelectorAll('.producto-opciones').forEach(opciones => {
+        opciones.hidden = true;
+        opciones.closest('.producto-selector').querySelector('.producto-trigger').setAttribute('aria-expanded', 'false');
+      });
+    });
 
     function actualizarTipoEntrega() {
       const esRetiro = document.getElementById('tipo_entrega').value === 'Retiro en local';
@@ -607,6 +730,16 @@
     // Guardar pedido y LIMPIAR formulario
     document.getElementById('form-pedido').addEventListener('submit', async (e) => {
       e.preventDefault();
+      const filaSinProducto = Array.from(document.querySelectorAll('.item-pedido'))
+        .find(fila => !fila.querySelector('.producto-select').value);
+      if (filaSinProducto) {
+        const mensaje = document.getElementById('error-catalogo');
+        mensaje.textContent = 'Seleccioná un producto en cada renglón del pedido.';
+        mensaje.hidden = false;
+        filaSinProducto.querySelector('.producto-trigger').focus();
+        return;
+      }
+      document.getElementById('error-catalogo').hidden = true;
       
       const payload = {
         tipo_entrega: document.getElementById('tipo_entrega').value,
