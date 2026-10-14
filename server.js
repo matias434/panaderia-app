@@ -356,8 +356,9 @@ app.post('/api/secretaria/logout', (req, res) => {
 
 app.get('/api/secretaria/pedidos', requiereSesionSecretaria, async (req, res) => {
   const { fecha, repartidor } = req.query;
-  if (!validarFechaISO(fecha) || !repartidores.includes(repartidor)) {
-    return res.status(400).json({ error: 'Seleccioná una fecha y un repartidor válidos' });
+  const esRetiro = repartidor === 'Retiro en local';
+  if (!validarFechaISO(fecha) || (!esRetiro && !repartidores.includes(repartidor))) {
+    return res.status(400).json({ error: 'Seleccioná una fecha y un repartidor o tipo de entrega válidos' });
   }
 
   try {
@@ -407,9 +408,11 @@ app.get('/api/secretaria/pedidos', requiereSesionSecretaria, async (req, res) =>
          WHERE pp.pedido_id = p.id
        ) pagos ON TRUE
        WHERE p.fecha_entrega::DATE = $1::DATE
-         AND p.repartidor = $2
-         AND p.tipo_entrega = 'Reparto'
-       ORDER BY c.nombre ASC, p.id ASC`,
+         AND (
+           ($2 = 'Retiro en local' AND p.tipo_entrega = 'Retiro en local')
+           OR ($2 <> 'Retiro en local' AND p.repartidor = $2 AND p.tipo_entrega = 'Reparto')
+         )
+       ORDER BY COALESCE(p.cliente_nombre, c.nombre) ASC, p.id ASC`,
       [fecha, repartidor]
     );
     res.json(result.rows);
@@ -445,13 +448,13 @@ app.put('/api/secretaria/pedidos/:id/precios', requiereSesionSecretaria, async (
     await client.query('BEGIN');
     const pedido = await client.query(
       `SELECT id FROM pedidos
-       WHERE id = $1 AND tipo_entrega = 'Reparto'
+       WHERE id = $1 AND tipo_entrega IN ('Reparto', 'Retiro en local')
        FOR UPDATE`,
       [pedidoId]
     );
     if (pedido.rowCount === 0) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'No se encontró el pedido de reparto' });
+      return res.status(404).json({ error: 'No se encontró el pedido de reparto o retiro en el local' });
     }
 
     const detalles = await client.query(
